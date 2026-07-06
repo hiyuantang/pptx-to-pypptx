@@ -797,7 +797,17 @@ def xfrm_to_box(xfrm):
 
 
 def combine_transforms(parent, child):
-    """Combine a parent group transform with a child transform."""
+    """Combine a parent group transform with a child transform.
+
+    The child's (unrotated) extent is scaled by the parent group's
+    child-space-to-display scale ``ext / chExt``. When the child is rotated a
+    quarter turn (90 deg or 270 deg), its local axes are swapped relative to
+    the group, so a *non-uniform* group scale must be applied with the x/y
+    factors swapped -- rotation and non-uniform scaling do not commute, and
+    without the swap a rotated shape (e.g. a -90 deg banner) comes out the
+    wrong shape and drifts off its intended position. Positions are derived
+    from the box center so the mapping is correct regardless of rotation.
+    """
     if parent is None:
         return child
     if child is None:
@@ -810,11 +820,21 @@ def combine_transforms(parent, child):
     scale_y = pcy / chcy if chcy else 1.0
     cx, cy = child['off']
     ccx, ccy = child['ext']
-    new_off = (
-        px + (cx - chx) * scale_x,
-        py + (cy - chy) * scale_y,
-    )
-    new_ext = (ccx * scale_x, ccy * scale_y)
+    # Map the child box center through the parent scale/translate; deriving the
+    # offset from the center keeps this correct for rotated shapes too.
+    center_x = px + (cx + ccx / 2 - chx) * scale_x
+    center_y = py + (cy + ccy / 2 - chy) * scale_y
+    try:
+        child_deg = (int(child.get('rot', '0') or 0) / 60000.0) % 180
+    except (TypeError, ValueError):
+        child_deg = 0.0
+    if abs(child_deg - 90) < 0.5:
+        # Quarter turn: group x-scale acts on the child's height, y-scale on
+        # its width.
+        new_ext = (ccx * scale_y, ccy * scale_x)
+    else:
+        new_ext = (ccx * scale_x, ccy * scale_y)
+    new_off = (center_x - new_ext[0] / 2, center_y - new_ext[1] / 2)
     return {
         'off': new_off,
         'ext': new_ext,
