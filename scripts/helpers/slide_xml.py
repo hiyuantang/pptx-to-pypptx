@@ -826,13 +826,22 @@ def combine_transforms(parent, child):
     }
 
 
-def _group_relative_transform(grp_xfrm):
-    """Return a transform that expresses child offsets relative to the group."""
+def _group_relative_transform(grp_xfrm, display_ext=None):
+    """Return a transform that expresses child offsets relative to the group.
+
+    ``display_ext`` is the group's *rendered* extent on the slide, i.e. its raw
+    ``ext`` after any scaling inherited from ancestor groups has been applied. It
+    must be used (instead of the group's own ``ext``) when computing the
+    child-space-to-display scale ``ext / chExt``; otherwise a group nested inside
+    another *scaled* group loses that ancestor scale and its descendants are
+    rendered too small. Falls back to the raw ``ext`` for a top-level group,
+    where the two are identical.
+    """
     if grp_xfrm is None:
         return None
     return {
         'off': (0, 0),
-        'ext': grp_xfrm['ext'],
+        'ext': display_ext if display_ext is not None else grp_xfrm['ext'],
         'chOff': grp_xfrm['chOff'],
         'chExt': grp_xfrm['chExt'],
         'rot': '0',
@@ -1663,7 +1672,11 @@ def _extract_container(container, transform, group_path, slide_rels=None, image_
             grp_xfrm = parse_xfrm(child.find(f'{{{P}}}grpSpPr/{{{A}}}xfrm'))
             abs_xfrm = combine_transforms(transform, grp_xfrm)
             gx, gy, gw, gh = xfrm_to_box(abs_xfrm)
-            rel_transform = _group_relative_transform(grp_xfrm)
+            # Use the group's *display* extent (raw ext scaled by any ancestor
+            # group scaling) so descendants keep the scale inherited from
+            # enclosing scaled groups.
+            display_ext = abs_xfrm['ext'] if abs_xfrm else None
+            rel_transform = _group_relative_transform(grp_xfrm, display_ext)
             children = _extract_container(child, rel_transform, [], slide_rels, image_rels, z_counter,
                                           layout_ph_map, master_ph_map,
                                           layout_text_map, master_text_map, master_tx_styles,
