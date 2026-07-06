@@ -872,14 +872,18 @@ def _group_relative_transform(grp_xfrm, display_ext=None):
 # Element parsers
 # ---------------------------------------------------------------------------
 
-def _base_attrs(elem, transform, group_path, typename, name):
-    """Common attributes for all elements."""
+def _base_attrs(elem, transform, group_path, typename, name, elem_id=''):
+    """Common attributes for all elements.
+
+    ``elem`` is the shape's ``a:xfrm`` (not the shape itself), so the caller
+    passes ``elem_id`` extracted from the shape's ``cNvPr`` separately.
+    """
     abs_xfrm = combine_transforms(transform, parse_xfrm(elem))
     x, y, w, h = xfrm_to_box(abs_xfrm)
     return {
         'type': typename,
         'name': name,
-        'id': get_id(elem),
+        'id': elem_id,
         'x': round(x, 3),
         'y': round(y, 3),
         'w': round(w, 3),
@@ -972,7 +976,7 @@ def parse_sp(sp, transform, group_path, slide_rels=None, layout_ph_map=None, mas
         xfrm = _find_inherited_xfrm(ph, layout_ph_map or {}, master_ph_map or {})
     if xfrm is None:
         return None
-    elem = _base_attrs(xfrm, transform, group_path, 'shape', name)
+    elem = _base_attrs(xfrm, transform, group_path, 'shape', name, get_id(sp))
     spPr = sp.find(f'{{{P}}}spPr')
     if spPr is None:
         return None
@@ -1328,7 +1332,7 @@ def parse_pic(pic, transform, group_path, image_rels=None, slide_rels=None):
     xfrm = pic.find(f'{{{P}}}spPr/{{{A}}}xfrm')
     if xfrm is None:
         return None
-    elem = _base_attrs(xfrm, transform, group_path, 'image', name)
+    elem = _base_attrs(xfrm, transform, group_path, 'image', name, get_id(pic))
     if elem['w'] == 0 and elem['h'] == 0:
         return None
     elem['descr'] = descr
@@ -1396,7 +1400,7 @@ def parse_cxnSp(cxn, transform, group_path, slide_rels=None):
     xfrm = cxn.find(f'{{{P}}}spPr/{{{A}}}xfrm')
     if xfrm is None:
         return None
-    elem = _base_attrs(xfrm, transform, group_path, 'connector', name)
+    elem = _base_attrs(xfrm, transform, group_path, 'connector', name, get_id(cxn))
     if elem['w'] == 0 and elem['h'] == 0:
         return None
     spPr = cxn.find(f'{{{P}}}spPr')
@@ -1412,6 +1416,17 @@ def parse_cxnSp(cxn, transform, group_path, slide_rels=None):
         style = parse_style(cxn)
         if style is not None:
             elem['style'] = style
+    # Shape-to-shape connections (stCxn/endCxn). These drive how a bent/elbow
+    # connector routes its bend, so they must be preserved for fidelity.
+    cxnPr = cxn.find(f'{{{P}}}nvCxnSpPr/{{{P}}}cNvCxnSpPr')
+    if cxnPr is not None:
+        connections = {}
+        for side, tag in (('begin', 'stCxn'), ('end', 'endCxn')):
+            node = cxnPr.find(f'{{{A}}}{tag}')
+            if node is not None and node.get('id') is not None:
+                connections[side] = {'id': node.get('id'), 'idx': node.get('idx', '0')}
+        if connections:
+            elem['connections'] = connections
     txBody = cxn.find(f'{{{P}}}txBody')
     _add_text(elem, txBody, slide_rels)
     return elem
@@ -1704,6 +1719,7 @@ def _extract_container(container, transform, group_path, slide_rels=None, image_
             group_elem = {
                 'type': 'group',
                 'name': grp_name,
+                'id': cNvPr.get('id', '') if cNvPr is not None else '',
                 'x': gx,
                 'y': gy,
                 'w': gw,

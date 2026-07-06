@@ -145,6 +145,28 @@ def _adjustments(geom):
     return [(name, fmla) for name, fmla in geom["adj"]]
 
 
+def _rotation_deg(shape):
+    """Return a shape's rotation in degrees, or None if unrotated/invalid."""
+    rot = shape.get("rot")
+    if not rot or str(rot) == "0":
+        return None
+    try:
+        deg = round(int(rot) / 60000, 3)
+    except (TypeError, ValueError):
+        return None
+    return deg or None
+
+
+# Preset geometry that python-pptx emits for each connector ``kind``. When the
+# source uses a different variant (e.g. ``bentConnector2`` vs ``bentConnector3``)
+# we pass the exact preset through so it round-trips faithfully.
+_CONNECTOR_DEFAULT_PRESET = {
+    "straight": "straightConnector1",
+    "elbow": "bentConnector3",
+    "curved": "curvedConnector3",
+}
+
+
 def _format_kwargs(kwargs):
     """Render keyword arguments for a helper call."""
     parts = []
@@ -528,6 +550,9 @@ def _code_for_line_or_arrow(shape, x, y, w, h):
         kwargs["cmpd"] = line["cmpd"]
     if shape.get("style"):
         kwargs["style"] = shape["style"]
+    rotation = _rotation_deg(shape)
+    if rotation is not None:
+        kwargs["rotation"] = rotation
 
     return (
         f"shapes.add_line(slide, {x1:.3f}, {y1:.3f}, {x2:.3f}, {y2:.3f}, "
@@ -571,9 +596,21 @@ def _code_for_connector(shape, x, y, w, h):
         kwargs["cmpd"] = line["cmpd"]
     if shape.get("style"):
         kwargs["style"] = shape["style"]
-    kind = _connector_kind(shape.get("geom", {}).get("type"))
+    geom = shape.get("geom", {})
+    geom_type = geom.get("type")
+    kind = _connector_kind(geom_type)
     if kind != "straight":
         kwargs["kind"] = kind
+    # Preserve the exact preset (and its guides) when it differs from the
+    # variant that ``kind`` maps to — otherwise an L-bend becomes a Z-bend, etc.
+    if geom_type and geom_type != _CONNECTOR_DEFAULT_PRESET.get(kind):
+        kwargs["preset"] = geom_type
+        adj = _adjustments(geom)
+        if adj:
+            kwargs["adjustments"] = adj
+    rotation = _rotation_deg(shape)
+    if rotation is not None:
+        kwargs["rotation"] = rotation
 
     return (
         f"shapes.add_connector(slide, {x1:.3f}, {y1:.3f}, {x2:.3f}, {y2:.3f}, "
@@ -761,16 +798,18 @@ def _code_for_chart(shape):
     )
 
 
-def _code_for_group(shape, media_names, target_var="slide", group_var="grp", assets_dir=None):
+def _code_for_group(shape, media_names, target_var="slide", group_var="grp", assets_dir=None, capture=None):
     x, y, w, h = shape["x"], shape["y"], shape["w"], shape["h"]
     lines = [f"{group_var} = shapes.add_group({target_var}, {x:.3f}, {y:.3f}, {w:.3f}, {h:.3f})"]
     child_group_var = group_var + "_"
     for child in shape.get("children", []):
         if child.get("type") == "group":
-            code = _code_for_group(child, media_names, target_var=group_var, group_var=child_group_var, assets_dir=assets_dir)
+            # Bind a captured child group to its connection variable.
+            child_var = (capture or {}).get(str(child.get("id")))
+            code = _code_for_group(child, media_names, target_var=group_var, group_var=child_var or child_group_var, assets_dir=assets_dir, capture=capture)
             child_group_var += "_"
         else:
-            code = _code_for_any(child, media_names, group_var=group_var, assets_dir=assets_dir)
+            code = _code_for_any(child, media_names, group_var=group_var, assets_dir=assets_dir, capture=capture)
         if code:
             lines.append(code)
     lines.append(f"shapes.set_group_bounds({group_var}, {x:.3f}, {y:.3f}, {w:.3f}, {h:.3f})")
@@ -822,15 +861,19 @@ def _code_for_freeform_svg(shape, x, y, w, h, assets_dir, group_var="slide"):
     return f"shapes.add_image({group_var}, {name!r}, {x:.3f}, {y:.3f}, {w:.3f}, {h:.3f})"
 
 
-def _code_for_any(shape, media_names=None, group_var="slide", assets_dir=None):
+def _code_for_any(shape, media_names=None, group_var="slide", assets_dir=None, capture=None):
     shape_type = shape.get("type")
     x, y, w, h = shape["x"], shape["y"], shape["w"], shape["h"]
     geom = shape.get("geom", {})
     geom_type = geom.get("type")
+    # Variable to bind this shape to, when it is a connector or a connection
+    # target that a `connect_shapes` call later references.
+    my_var = (capture or {}).get(str(shape.get("id")))
 
     # Custom geometry that we successfully converted to SVG -> render as image.
     if geom_type == "custom" and geom.get("svg_data"):
-        return _code_for_freeform_svg(shape, x, y, w, h, assets_dir, group_var=group_var)
+        code = _code_for_freeform_svg(shape, x, y, w, h, assets_dir, group_var=group_var)
+        return f"{my_var} = {code}" if my_var else code
 
     if shape_type == "image":
         code = _code_for_image(shape, media_names)
@@ -847,7 +890,13 @@ def _code_for_any(shape, media_names=None, group_var="slide", assets_dir=None):
     elif shape_type == "textbox":
         code = _code_for_text_shape(shape, x, y, w, h)
     elif shape_type == "group":
-        code = _code_for_group(shape, media_names, target_var=group_var, group_var="grp", assets_dir=assets_dir)
+        # A captured group binds its own variable inside _code_for_group; return
+        # directly so the assignment isn't double-wrapped.
+        gv = my_var or "grp"
+        return _code_for_group(
+            shape, media_names, target_var=group_var, group_var=gv,
+            assets_dir=assets_dir, capture=capture,
+        )
     elif shape_type in ("shape", "auto_shape", "placeholder") or "shape" in str(shape_type).lower():
         # Property-first classification: placeholders are treated as normal shapes.
         eff_fill = shape.get("fill")
@@ -873,6 +922,8 @@ def _code_for_any(shape, media_names=None, group_var="slide", assets_dir=None):
         # Redirect slide-level helper calls to the group variable.
         code = code.replace("(slide,", f"({group_var},")
         code = code.replace(", slide,", f", {group_var},")
+    if my_var and code and not code.lstrip().startswith("#"):
+        code = f"{my_var} = {code}"
     return code
 
 
@@ -1027,6 +1078,70 @@ def generate_layout_chrome_code(layout_xml: Path, media_names: dict, slide_num: 
     return "\n".join(out)
 
 
+def _sanitize_id(value) -> str:
+    """Make a shape id safe to use as a Python identifier suffix."""
+    return re.sub(r"\W", "_", str(value))
+
+
+def _collect_shape_ids(shapes, out):
+    """Collect the ids of every shape in the tree (recursing into groups)."""
+    for s in shapes:
+        if s.get("id"):
+            out.add(str(s["id"]))
+        if s.get("children"):
+            _collect_shape_ids(s["children"], out)
+
+
+def _collect_connectors(shapes, out):
+    """Collect connectors that carry shape-to-shape connections."""
+    for s in shapes:
+        if s.get("type") == "connector" and s.get("connections"):
+            out.append(s)
+        if s.get("children"):
+            _collect_connectors(s["children"], out)
+
+
+def _connection_plan(shapes):
+    """Plan variable capture + ``connect_shapes`` calls for connected connectors.
+
+    Returns ``(capture, connect_lines)``: ``capture`` maps a source shape id to
+    the Python variable the generated code should bind it to, and
+    ``connect_lines`` are the trailing ``shapes.connect_shapes(...)`` statements
+    that re-attach each connector once every shape exists.
+    """
+    present = set()
+    _collect_shape_ids(shapes, present)
+    connectors = []
+    _collect_connectors(shapes, connectors)
+
+    capture = {}
+    connect_lines = []
+    for conn in connectors:
+        cid = conn.get("id")
+        if not cid:
+            continue
+        sides = []
+        for side in ("begin", "end"):
+            spec = conn["connections"].get(side)
+            if not spec:
+                continue
+            tid = str(spec.get("id"))
+            if tid not in present:
+                continue  # target isn't reproduced (e.g. a placeholder) -> skip
+            capture[tid] = f"_sh{_sanitize_id(tid)}"
+            try:
+                idx = int(spec.get("idx", 0))
+            except (TypeError, ValueError):
+                idx = 0
+            sides.append(f"{side}=({capture[tid]}, {idx})")
+        if not sides:
+            continue
+        cvar = f"_cx{_sanitize_id(cid)}"
+        capture[str(cid)] = cvar
+        connect_lines.append(f"shapes.connect_shapes({cvar}, {', '.join(sides)})")
+    return capture, connect_lines
+
+
 def generate_slide_code(slide_xml: Path, media_names: dict, title: str, assets_dir: Path | None = None) -> str:
     """Return the body of an add_slide() function as a code string."""
     raw_shapes = read_slide_shapes(slide_xml)
@@ -1046,10 +1161,15 @@ def generate_slide_code(slide_xml: Path, media_names: dict, title: str, assets_d
     if notes_code:
         lines.append(notes_code)
 
+    capture, connect_lines = _connection_plan(shapes)
+
     for shape in shapes:
         if shape.get("placeholder") in ("title", "ctrTitle"):
             shape["name"] = "Title"
-        lines.append(_code_for_any(shape, media_names, assets_dir=assets_dir))
+        lines.append(_code_for_any(shape, media_names, assets_dir=assets_dir, capture=capture))
+
+    # Re-attach connected connectors after every shape exists (order-independent).
+    lines.extend(connect_lines)
 
     flattened = []
     for item in lines:

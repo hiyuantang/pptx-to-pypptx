@@ -182,6 +182,12 @@ def normalize_element(elem: dict) -> dict:
     for key in ("rot", "flipH", "flipV"):
         if elem.get(key) is not None:
             out[key] = elem[key]
+    # Preserve the source shape id and any connector connections so bent/elbow
+    # connectors can be re-attached to their target shapes on rebuild.
+    if elem.get("id"):
+        out["id"] = elem["id"]
+    if elem.get("connections"):
+        out["connections"] = elem["connections"]
 
     fill = _effective_fill(elem)
     if fill is not None:

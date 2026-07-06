@@ -1615,8 +1615,12 @@ def add_line(
     cap: str = "flat",
     cmpd: str = "sng",
     style: dict | None = None,
+    rotation: float = 0,
 ) -> "Shape":
     """Draw a straight line shape from ``(x1, y1)`` to ``(x2, y2)``.
+
+    ``(x1, y1)`` .. ``(x2, y2)`` describe the line's *unrotated* extent and
+    direction; ``rotation`` is then applied around its center (OOXML semantics).
 
     Args:
         slide_or_group: A python-pptx ``Slide`` or ``GroupShape``.
@@ -1633,6 +1637,7 @@ def add_line(
         cap: Line cap style, e.g. ``'flat'``, ``'rnd'``, ``'sq'``.
         cmpd: Compound line style, e.g. ``'sng'`` or ``'dbl'``.
         style: Theme style reference dict.
+        rotation: Rotation in degrees, applied around the line's center.
 
     Returns:
         The created line ``Shape``.
@@ -1643,7 +1648,7 @@ def add_line(
         slide_or_group, "line", x, y, w, h,
         fill=None, line=color, line_width=width, line_dash=dash,
         line_head=head, line_tail=tail, line_cap=cap, line_cmpd=cmpd,
-        style=style,
+        style=style, rotation=rotation,
     )
     # Orient the line to point from (x1,y1) to (x2,y2).
     spPr = shape._element.spPr
@@ -1711,8 +1716,16 @@ def add_connector(
     cmpd: str = "sng",
     style: dict | None = None,
     kind: str = "straight",
+    rotation: float = 0,
+    preset: str | None = None,
+    adjustments: list | None = None,
 ) -> "Connector":
     """Add a connector shape (``cxnSp``).
+
+    ``(x1, y1)`` .. ``(x2, y2)`` describe the connector's *unrotated* bounding
+    box and direction (the endpoint ordering encodes flipH/flipV). ``rotation``
+    is then applied around the box center, matching OOXML semantics, so a
+    rotated elbow/bent connector lands in the right place and orientation.
 
     Args:
         slide_or_group: A python-pptx ``Slide`` or ``GroupShape``.
@@ -1729,6 +1742,11 @@ def add_connector(
         cmpd: Compound line style.
         style: Theme style reference dict.
         kind: Connector geometry: ``'straight'``, ``'elbow'``, or ``'curved'``.
+        rotation: Rotation in degrees, applied around the box center.
+        preset: Exact preset geometry name (e.g. ``'bentConnector2'``) to
+            reproduce faithfully. Overrides the geometry ``kind`` maps to.
+        adjustments: Optional list of ``(name, fmla)`` guide tuples for the
+            preset's ``avLst``.
 
     Returns:
         The created connector shape.
@@ -1745,7 +1763,58 @@ def add_connector(
     )
     _apply_style(conn, style)
     _apply_line(conn, color, width, dash, head, tail, cap, cmpd)
+    if preset:
+        _set_connector_preset(conn, preset, adjustments)
+    if rotation:
+        conn.rotation = rotation
     return conn
+
+
+def connect_shapes(conn, begin=None, end=None) -> None:
+    """Attach a connector's ends to shapes via ``stCxn``/``endCxn``.
+
+    Unlike python-pptx's ``begin_connect``/``end_connect``, this does *not*
+    reposition the connector — it keeps the connector's already-correct baked
+    geometry and only records the connection sites, so a viewer that reroutes
+    connected connectors (PowerPoint, LibreOffice) reproduces the original
+    bend exactly.
+
+    Args:
+        conn: A python-pptx ``Connector``.
+        begin: ``(shape, idx)`` for the start, or ``None``.
+        end: ``(shape, idx)`` for the end, or ``None``.
+    """
+    cxnPr = conn._element.nvCxnSpPr.cNvCxnSpPr
+    # cNvCxnSpPr children must be ordered <a:stCxn> then <a:endCxn>.
+    for tag, spec in (("a:endCxn", end), ("a:stCxn", begin)):
+        for existing in cxnPr.findall(qn(tag)):
+            cxnPr.remove(existing)
+        if spec is None:
+            continue
+        shape, idx = spec
+        el = cxnPr.makeelement(qn(tag), {"id": str(shape.shape_id), "idx": str(idx)})
+        cxnPr.insert(0, el)
+
+
+def _set_connector_preset(conn, preset: str, adjustments: list | None = None) -> None:
+    """Override a connector's preset geometry (and adjustment guides).
+
+    python-pptx only exposes STRAIGHT/ELBOW/CURVE, which map to a fixed set of
+    presets (e.g. ELBOW -> ``bentConnector3``). Source decks use finer variants
+    such as ``bentConnector2``; this rewrites ``prstGeom`` to match.
+    """
+    prstGeom = conn._element.spPr.find(qn("a:prstGeom"))
+    if prstGeom is None:
+        return
+    prstGeom.set("prst", preset)
+    avLst = prstGeom.find(qn("a:avLst"))
+    if avLst is None:
+        avLst = prstGeom.makeelement(qn("a:avLst"), {})
+        prstGeom.append(avLst)
+    for gd in list(avLst):
+        avLst.remove(gd)
+    for name, fmla in (adjustments or []):
+        avLst.append(prstGeom.makeelement(qn("a:gd"), {"name": name, "fmla": fmla}))
 
 
 def add_callout(

@@ -29,7 +29,8 @@ grep -n -A 20 "^def add_box" lib/shapes.py
 - `add_box` — colored rectangle/rounded box
 - `add_text` — text box
 - `add_label` — simple centered label
-- `add_line` / `add_arrow` / `add_connector` — lines and connectors
+- `add_line` / `add_arrow` / `add_connector` — lines and connectors (support `rotation=`; `add_connector` also takes `preset=` for an exact bent/curved variant)
+- `connect_shapes` — attach a connector's ends to shapes (`stCxn`/`endCxn`) so bent connectors reroute like the source
 - `add_callout` — pre-styled callout box
 - `add_image` — image from `assets/`
 - `add_chart` — chart
