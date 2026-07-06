@@ -112,4 +112,7 @@ python-pptx"*, *"sync my deck changes to code"*, or *"what's on slide 10?"*.
 
 ## License
 
-[Apache License 2.0](./LICENSE).
+Copyright 2026 Yuan Tang.
+
+Licensed under the [Apache License, Version 2.0](./LICENSE). You may not use
+this project except in compliance with the License.
