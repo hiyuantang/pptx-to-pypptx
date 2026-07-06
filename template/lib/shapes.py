@@ -248,7 +248,19 @@ _SHAPE_KIND_MAP = {
 def _shape_kind(kind: str):
     if isinstance(kind, MSO_SHAPE):
         return kind
-    return _SHAPE_KIND_MAP.get(kind, MSO_SHAPE.RECTANGLE)
+    if kind in _SHAPE_KIND_MAP:
+        return _SHAPE_KIND_MAP[kind]
+    # Fall back to resolving the raw OOXML preset name (e.g. 'corner',
+    # 'homePlate', 'chord', ...). The map above only lists common presets and
+    # a few intentional remaps (e.g. 'line'); anything else that is a valid
+    # preset geometry should round-trip as itself rather than silently
+    # degrading to a rectangle.
+    if kind:
+        try:
+            return MSO_SHAPE.from_xml(kind)
+        except Exception:
+            pass
+    return MSO_SHAPE.RECTANGLE
 
 
 # ---------------------------------------------------------------------------
