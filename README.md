@@ -38,7 +38,7 @@ pptx-to-pypptx/
 ├── scripts/                 # command-line tools (run with uv)
 │   ├── scaffold.py          # create a new project from a target deck
 │   ├── generate_slides.py   # generate/refresh slides/sNN_*.py from a deck
-│   ├── detect_project.py    # locate an existing project
+│   ├── detect_project.py    # list existing projects
 │   ├── extract_slide.py     # dump/screenshot a single slide
 │   ├── extract_notes.py     # export speaker notes to Markdown
 │   ├── sync_slide_numbers.py# reserve/close slide-number slots

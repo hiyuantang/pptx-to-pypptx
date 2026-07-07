@@ -58,7 +58,7 @@ my-deck/
 | `extract_slide.py` | Dump a slide's shapes — position, size, text, fill, font, z-order, `[HIDDEN]`. `--verbose` for detail, `--screenshot` for a PNG, `--json` for machine output. Accepts `all`. |
 | `extract_notes.py` | Export speaker notes from `slides/*.py` to a Markdown file. |
 | `list_layouts.py` | List layout indices in a deck (for a slide's `LAYOUT` constant). |
-| `detect_project.py` | Locate an existing project (current dir or one level down). Run before a partial update. |
+| `detect_project.py` | List existing projects (current dir or one level down) with each one's slides, backups, and output path. Run before a partial update. Returns a `projects` array (`count` 0 → exit 1). |
 | `build_deck.py` | *(inside the project)* Build `slides/` into `out/<name>.pptx`, archiving the prior build to `backup/`. |
 
 Canonical invocations:

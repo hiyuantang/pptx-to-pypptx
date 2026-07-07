@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Detect a pptx-to-pypptx project directory and report its layout.
+"""Detect pptx-to-pypptx project directories and report their layout.
 
-If --dir is given, check that directory only. Otherwise, check the current
-working directory and one level of subdirectories.
+Searches --dir (or the current working directory) and recognizes a project at
+the search dir itself or one level below. All matching projects are listed.
 
 Exit code:
-    0 — a valid project was found
-    1 — no valid project found
+    0 — at least one project was found
+    1 — no project found
 """
 
 import argparse
@@ -24,14 +24,18 @@ def _is_project_dir(path: Path) -> bool:
     )
 
 
-def _find_project(start: Path) -> Path | None:
+def _find_projects(start: Path) -> list[Path]:
+    """Return every project at the start dir or one level below, sorted."""
+    if not start.is_dir():
+        return []
+    found = []
     if _is_project_dir(start):
-        return start
-    # Sort for deterministic results when several projects sit side by side.
+        found.append(start)
+    # Sort for deterministic ordering when several projects sit side by side.
     for child in sorted(start.iterdir()):
-        if child.is_dir() and _is_project_dir(child):
-            return child
-    return None
+        if _is_project_dir(child):
+            found.append(child)
+    return found
 
 
 def _output_pptx(project_dir: Path) -> tuple[str, Path | None]:
@@ -52,34 +56,12 @@ def _output_pptx(project_dir: Path) -> tuple[str, Path | None]:
     return expected, None
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Detect a pptx-to-pypptx project")
-    parser.add_argument(
-        "--dir",
-        type=Path,
-        default=None,
-        help="Directory to check (default: current dir and immediate subdirs)",
-    )
-    args = parser.parse_args()
-
-    start = (args.dir or Path.cwd()).resolve()
-    project_dir = _find_project(start)
-
-    if project_dir is None:
-        print(json.dumps({
-            "found": False,
-            "searched": str(start),
-            "message": "No pptx-to-pypptx project found. Run scaffold.py to create one.",
-        }, indent=2))
-        sys.exit(1)
-
+def _project_info(project_dir: Path) -> dict:
     slide_files = sorted((project_dir / "slides").glob("s*.py"))
     output_filename, out_pptx = _output_pptx(project_dir)
     backup_dir = project_dir / "backup"
     backup_files = sorted(backup_dir.glob("backup_*.pptx"), key=lambda p: p.name)
-
-    result = {
-        "found": True,
+    return {
         "project_dir": str(project_dir),
         "output_filename": output_filename,
         "slide_count": len(slide_files),
@@ -90,7 +72,31 @@ def main():
         "output_pptx_exists": out_pptx is not None,
         "output_pptx_path": str(out_pptx) if out_pptx else None,
     }
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Detect pptx-to-pypptx projects")
+    parser.add_argument(
+        "--dir",
+        type=Path,
+        default=None,
+        help="Directory to search (default: current dir and immediate subdirs)",
+    )
+    args = parser.parse_args()
+
+    start = (args.dir or Path.cwd()).resolve()
+    projects = _find_projects(start)
+
+    result = {
+        "found": bool(projects),
+        "searched": str(start),
+        "count": len(projects),
+        "projects": [_project_info(p) for p in projects],
+    }
+    if not projects:
+        result["message"] = "No pptx-to-pypptx project found. Run scaffold.py to create one."
     print(json.dumps(result, indent=2))
+    sys.exit(0 if projects else 1)
 
 
 if __name__ == "__main__":
