@@ -16,10 +16,15 @@ from pathlib import Path
 
 
 def _is_project_dir(path: Path) -> bool:
+    # Require the files a build actually needs: build_deck.py imports both
+    # `from lib import design as d` and `from lib import shapes`, and lib must
+    # be an importable package (lib/__init__.py).
     return (
         path.is_dir()
         and (path / "build_deck.py").is_file()
         and (path / "slides").is_dir()
+        and (path / "lib" / "__init__.py").is_file()
+        and (path / "lib" / "design.py").is_file()
         and (path / "lib" / "shapes.py").is_file()
     )
 
