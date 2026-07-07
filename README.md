@@ -104,10 +104,12 @@ my-deck/
 - **Roll back anytime** — every successful build is saved to `backup/` as
   `backup_<timestamp>.pptx` (the last 10 are kept), so you can ask the agent to
   restore an earlier one.
-- **Edit by hand:** `slides/*.py` (a slide's content) and `lib/design.py` (theme
-  colors and fonts). **Leave to the agent:** `build_deck.py`, `lib/shapes.py`,
-  and the filenames in `slides/` — ask it to add, remove, or reorder slides
-  rather than renaming files yourself.
+- **Prefer to edit the code yourself?** You don't have to, but you can: the deck
+  is real Python. `slides/*.py` (each slide's content) and `lib/design.py` (theme
+  colors and fonts) are safe to change by hand. Leave `build_deck.py` and
+  `lib/shapes.py` alone — they're the engine — and don't rename files in
+  `slides/` (their names set the slide order); ask the agent to add, remove, or
+  reorder slides instead.
 - **Your original `.pptx` is never modified** — it stays as a read-only
   reference.
 
