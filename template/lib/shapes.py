@@ -1779,6 +1779,11 @@ def add_connector(
     _apply_line(conn, color, width, dash, head, tail, cap, cmpd)
     if preset:
         _set_connector_preset(conn, preset, adjustments)
+    elif adjustments:
+        # No preset override, but the source carried adjustment guides (e.g. a
+        # bent connector's ``adj1`` bend position) that must be applied to the
+        # default preset — otherwise the turning point snaps back to center.
+        _apply_adjustments(conn, adjustments)
     if rotation:
         conn.rotation = rotation
     return conn

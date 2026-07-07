@@ -620,13 +620,18 @@ def _code_for_connector(shape, x, y, w, h):
     kind = _connector_kind(geom_type)
     if kind != "straight":
         kwargs["kind"] = kind
-    # Preserve the exact preset (and its guides) when it differs from the
-    # variant that ``kind`` maps to — otherwise an L-bend becomes a Z-bend, etc.
+    # Preserve the exact preset when it differs from the variant that ``kind``
+    # maps to — otherwise an L-bend becomes a Z-bend, etc.
     if geom_type and geom_type != _CONNECTOR_DEFAULT_PRESET.get(kind):
         kwargs["preset"] = geom_type
-        adj = _adjustments(geom)
-        if adj:
-            kwargs["adjustments"] = adj
+    # Always preserve the adjustment guides (e.g. a bent connector's ``adj1``
+    # bend position), independent of the preset. A bentConnector3 with a
+    # non-default ``adj1`` matches the elbow default preset yet still needs its
+    # guide, otherwise the turning point snaps back to the preset default
+    # (center).
+    adj = _adjustments(geom)
+    if adj:
+        kwargs["adjustments"] = adj
     rotation = _rotation_deg(shape)
     if rotation is not None:
         kwargs["rotation"] = rotation
