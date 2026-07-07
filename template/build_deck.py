@@ -17,17 +17,20 @@ BASE = Path(__file__).parent
 shapes.set_assets_dir(BASE / "assets")
 
 parser = argparse.ArgumentParser(description="Build the generated slide deck.")
-parser.add_argument(
-    "--target",
-    type=Path,
-    required=True,
-    help="Target .pptx to use for slide layouts/masters.",
-)
-args = parser.parse_args()
+parser.parse_args()  # no options; supports --help and rejects stray arguments
 
-# Load the target deck for its layouts/masters. The target is read-only;
-# output is written to out/<project-name>.pptx.
-prs = Presentation(str(args.target))
+# Load the bundled base deck (lib/base.pptx: masters/layouts/theme, no slides,
+# captured by scaffold.py). It is read-only; the built deck is written to
+# out/<project-name>.pptx. build_deck.py is self-contained and needs no source
+# .pptx. To refresh layouts/theme after editing them in PowerPoint, run
+# recapture_base.py, which rewrites lib/base.pptx.
+base_deck = BASE / "lib" / "base.pptx"
+if not base_deck.exists():
+    sys.exit(
+        f"Base deck not found: {base_deck}\n"
+        "Re-run scaffold.py to regenerate it, or refresh it with recapture_base.py."
+    )
+prs = Presentation(str(base_deck))
 prs.slide_width = d.SLIDE_W
 prs.slide_height = d.SLIDE_H
 
@@ -36,7 +39,9 @@ prs.slide_height = d.SLIDE_H
 # layout would create duplicate locked background copies.
 shapes.remove_layout_chrome(prs)
 
-# Remove the original template slides; the generated slides will replace them.
+# Defensive: strip any content slides from the base deck. The bundled
+# lib/base.pptx has none; this only guards against a hand-edited base. The
+# generated slides below are what populate the deck.
 original_slides = list(prs.slides)
 for old_slide in original_slides:
     slide_id = old_slide.slide_id

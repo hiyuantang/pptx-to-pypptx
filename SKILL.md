@@ -15,7 +15,7 @@ Replace `<pptx-to-pypptx-dir>` below with the directory that contains this `SKIL
 - **Run the scripts; don't hand-craft XML.** The scripts handle extraction, codegen, and rebuilding. Your job is to pick the right one and verify its output. Run them as documented — don't pre-emptively edit, move, rename, or delete files.
 - **Slide-number sync.** Always use `sync_slide_numbers.py` to add, remove, or reorder slides. Never manually rename or delete `slides/s*.py`.
 - **Skill core is off-limits.** Don't edit anything under `<pptx-to-pypptx-dir>/` (templates, scripts, helpers) — including `lib/shapes.py` — unless the user explicitly asks you to fix or upgrade the skill itself. For deck work, only edit generated project files (`slides/*.py`, `lib/design.py`, etc.).
-- **Preserve human files.** `scaffold.py` only overwrites its own generated files (`build_deck.py`, `slides/*.py`, `lib/*.py`, `assets/`, `backup/`). Never delete a `.pptx` a human placed in the project root or `out/` unless the user asks.
+- **Preserve human files.** `scaffold.py` only overwrites its own generated files (`build_deck.py`, `slides/*.py`, `lib/*.py`, `lib/base.pptx`, `assets/`, `backup/`). Never delete a `.pptx` a human placed in the project root or `out/` unless the user asks.
 - **Backups.** `backup/` keeps the last 10 successful builds (`backup_YYYYMMDD_HHMMSS.pptx`). You may copy one back into `out/` or the project root if the user wants to restore a version.
 
 ## What you need
@@ -34,7 +34,8 @@ my-deck/
 ├── assets/                    # media + freeform SVGs extracted from the target
 ├── lib/
 │   ├── design.py              # colors, fonts, layout constants (edit to match deck)
-│   └── shapes.py              # add_box, add_shape, add_image, add_connector, add_chart, ...
+│   ├── shapes.py              # add_box, add_shape, add_image, add_connector, add_chart, ...
+│   └── base.pptx              # template shell (masters/layouts/theme, no slides); build input
 ├── slides/
 │   ├── s01_title.py           # one file per slide; deck number = filename order
 │   └── s02_outline.py
@@ -51,14 +52,15 @@ my-deck/
 
 | Command | What it does |
 |---|---|
-| `scaffold.py` | Create the project structure, copy assets, and auto-detect the footer into `lib/design.py` (`FOOTER_TEXT`). The built deck is named after `<output-dir>`. Does **not** generate slide code or a `pyproject.toml`. |
+| `scaffold.py` | Create the project structure, copy assets, capture the base deck (`lib/base.pptx`: masters/layouts/theme, no slides), and auto-detect the footer into `lib/design.py` (`FOOTER_TEXT`). The built deck is named after `<output-dir>`. Does **not** generate slide code or a `pyproject.toml`. |
 | `generate_slides.py` | Fully overwrite selected `slides/sNN_*.py` from the target. `--slides` is required (`4` \| `2-5` \| `3,7,9`); there is no `all`. |
 | `sync_slide_numbers.py` | Reserve slots (`--add`) or close gaps (`--delete`) by renaming `slides/s*.py`. Run **before** `generate_slides.py`; only renames/deletes files. Add `--apply` to act (default is a dry run). |
 | `extract_slide.py` | Dump a slide's shapes — position, size, text, fill, font, z-order, `[HIDDEN]`. `--verbose` for detail, `--screenshot` for a PNG, `--json` for machine output. Accepts `all`. |
 | `extract_notes.py` | Export speaker notes from `slides/*.py` to a Markdown file. |
 | `list_layouts.py` | List layout indices in a deck (for a slide's `LAYOUT` constant). |
 | `detect_project.py` | List existing projects (current dir or one level down) with each one's slides, backups, and output path. Run before a partial update. Returns a `projects` array (`count` 0 → exit 1). |
-| `build_deck.py` | *(inside the project)* Build `slides/` into `out/<name>.pptx`, archiving the prior build to `backup/`. |
+| `build_deck.py` | *(inside the project)* Build `slides/` into `out/<name>.pptx`, archiving the prior build to `backup/`. Self-contained and takes no arguments — it uses the bundled `lib/base.pptx` for masters/layouts/theme. |
+| `recapture_base.py` | Refresh a project's `lib/base.pptx` from an edited deck (default source: its `out/<name>.pptx`) after you change masters/layouts/theme in PowerPoint. Non-destructive — only rewrites `lib/base.pptx`, never touches `slides/`. |
 
 Canonical invocations:
 
@@ -71,9 +73,12 @@ uv run python <pptx-to-pypptx-dir>/scripts/scaffold.py \
 uv run python <pptx-to-pypptx-dir>/scripts/generate_slides.py \
   --target "<target.pptx>" --project-dir <output-dir> --slides 1-5
 
-# Build. Run with --directory so build_deck.py's relative imports resolve;
-# uv resolves the environment from the project root.
-uv run --directory <output-dir> python build_deck.py --target "<target.pptx>"
+# Build (self-contained; uses lib/base.pptx). Run with --directory so
+# build_deck.py's relative imports resolve; uv resolves the env from the root.
+uv run --directory <output-dir> python build_deck.py
+
+# Recapture lib/base.pptx after editing masters/layouts/theme in PowerPoint
+uv run python <pptx-to-pypptx-dir>/scripts/recapture_base.py --project-dir <output-dir>
 
 # Reserve slots 3 and 6 (or --delete 2,5 to close gaps); default is a dry run
 uv run python <pptx-to-pypptx-dir>/scripts/sync_slide_numbers.py \
@@ -90,7 +95,7 @@ uv run python <pptx-to-pypptx-dir>/scripts/extract_slide.py "<target.pptx>" 7 --
 1. **Inspect** the current directory with `detect_project.py`. If a project already exists, ask the user whether to use it or scaffold a new folder — multiple projects can coexist, so only scaffold when the target location is confirmed.
 2. **Scaffold** from the target (`scaffold.py`).
 3. **Generate** code for **all** slides (`generate_slides.py --slides 1-N`).
-4. **Build once** (`build_deck.py --target "<target.pptx>"`). Don't build again until there are edits or a regeneration.
+4. **Build once** (`build_deck.py`). Don't build again until there are edits or a regeneration.
 5. **Check for TODOs** in the generated `slides/s*.py`. No `# TODO` → the deck is done. TODOs → implement them, improve the skill, or flag them to the user.
 
 ### Partial update (human edited a `.pptx`)
@@ -100,7 +105,7 @@ By default, assume the human edited the working deck at `out/<filename>.pptx`. T
 1. **Detect** the project with `detect_project.py` to confirm its structure (`build_deck.py`, `slides/`, `lib/`, `assets/`) and locate `slides/`.
 2. **If slides were added or deleted**, run `sync_slide_numbers.py` (`--add` / `--delete`, see Commands) to reserve slots or close gaps first.
 3. **Generate** only the affected slides (`generate_slides.py --slides 3,7,12`). Do **not** run `scaffold.py` again.
-4. **Build** with `build_deck.py --target "<output-dir>/out/<filename>.pptx"` (or the original target if the user said they edited it).
+4. **Build** with `build_deck.py`. (If the human changed masters/layouts/theme in PowerPoint, first run `recapture_base.py --project-dir <output-dir>` to bake the new layouts into `lib/base.pptx`.)
 5. **Check for TODOs** in the regenerated files. (Optionally spot-check the output.)
 
 > **Agent rule:** No need to visually inspect slides unless the user asks. Use `extract_slide.py` to see what is on a slide without screenshots. Success = the requested slides regenerate with no unexpected `# TODO` comments.
@@ -113,7 +118,7 @@ Canonical round-trip:
 
 1. **Edit** `slides/s*.py` (or `lib/shapes.py`).
 2. **If you add or remove slide files**, run `sync_slide_numbers.py` to keep indices contiguous.
-3. **Build** with `build_deck.py --target "<output-dir>/out/my-deck.pptx"`.
+3. **Build** with `build_deck.py`.
 4. **Canonicalize** each edited slide by regenerating it from the freshly built output, so the code matches what `python-pptx` actually serialized:
    ```bash
    uv run python <pptx-to-pypptx-dir>/scripts/generate_slides.py \

@@ -92,7 +92,8 @@ my-deck/
 ├── slides/            # one .py file per slide — the deck's content
 ├── lib/
 │   ├── design.py      # colors, fonts, spacing — the deck's theme
-│   └── shapes.py      # drawing engine — the agent's toolbox
+│   ├── shapes.py      # drawing engine — the agent's toolbox
+│   └── base.pptx      # template shell (layouts/theme) the deck is built from
 ├── assets/            # images, video, GIFs, SVGs used by the slides
 ├── out/
 │   └── my-deck.pptx   # the built deck — open and share this one
@@ -110,8 +111,8 @@ my-deck/
   restore an earlier one.
 - **Prefer to edit the code yourself?** You don't have to, but you can: the deck
   is real Python. `slides/*.py` (each slide's content) and `lib/design.py` (theme
-  colors and fonts) are safe to change by hand. Leave `build_deck.py` and
-  `lib/shapes.py` alone — they're the engine — and don't rename files in
+  colors and fonts) are safe to change by hand. Leave `build_deck.py`,
+  `lib/shapes.py`, and `lib/base.pptx` alone — they're the engine — and don't rename files in
   `slides/` (their names set the slide order); ask the agent to add, remove, or
   reorder slides instead.
 - **Your original `.pptx` is never modified** — it stays as a read-only

@@ -16,6 +16,34 @@ def count_slides(pptx: Path) -> int:
         )
 
 
+def write_base_deck(source: Path, dest: Path) -> None:
+    """Write a *base* deck: the template shell with all content slides removed.
+
+    Keeps every slide master, layout, and the theme so ``build_deck.py`` can bind
+    generated slides to the right layout, but drops the source deck's own slides.
+    The result is a minimal, self-contained shell the project builds from, so a
+    plain ``build_deck.py`` needs no source ``.pptx`` at build time.
+    """
+    from pptx import Presentation
+
+    prs = Presentation(str(source))
+    for slide in list(prs.slides):
+        slide_id = slide.slide_id
+        rId = None
+        for rel in prs.part.rels.values():
+            if rel.target_part == slide.part:
+                rId = rel.rId
+                break
+        if rId:
+            prs.part.drop_rel(rId)
+        for sldId in list(prs.slides._sldIdLst):
+            if sldId.id == slide_id:
+                prs.slides._sldIdLst.remove(sldId)
+                break
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    prs.save(str(dest))
+
+
 def parse_slide_range(arg: str, total: int, *, allow_all: bool = True) -> list[int]:
     """Parse a slide selection into a sorted list of 1-based slide numbers.
 
