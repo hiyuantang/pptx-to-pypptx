@@ -9,6 +9,10 @@ This repository is packaged as a [Claude Code](https://claude.com/claude-code)
 **skill** ([`SKILL.md`](./SKILL.md)), but the scripts under [`scripts/`](./scripts)
 are plain command-line tools and can be run on their own.
 
+## Demo
+
+https://github.com/user-attachments/assets/aca8829a-0d3e-4415-ab83-2e816482f1f0
+
 ## Why
 
 `.pptx` files are opaque zipped XML. Once a deck lives as one small Python file

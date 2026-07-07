@@ -38,3 +38,8 @@ shots/
 .agents/
 .claude/
 skills-lock.json
+
+# Explainer video — the "how to use pptx-to-pypptx" HyperFrames video and the
+# Cartesian frame pack it's built from. Local video production, not part of the skill.
+howto-video/
+cartesian-frame-pack/
