@@ -1025,7 +1025,7 @@ def detect_footer_text(layout_xmls: list[Path]) -> str | None:
     return sorted(candidates, key=lambda x: (-x[1], len(x[0])))[0][0]
 
 
-def generate_layout_chrome_code(layout_xml: Path, media_names: dict, slide_num: int, footer_text: str | None = None, assets_dir: Path | None = None) -> str:
+def generate_layout_chrome_code(layout_xml: Path, media_names: dict, slide_num: int, footer_text: str | None = None, assets_dir: Path | None = None, skip_slide_number: bool = False) -> str:
     """Generate code for layout-level footer/page-number shapes on a slide.
 
     These shapes live on the slide layout, so PowerPoint locks them on the
@@ -1053,7 +1053,7 @@ def generate_layout_chrome_code(layout_xml: Path, media_names: dict, slide_num: 
         y = s.get("y", 0)
         included = False
         if ph:
-            if ph == "sldNum" and not has_regular_sldnum and y >= 6.0:
+            if ph == "sldNum" and not has_regular_sldnum and not skip_slide_number and y >= 6.0:
                 _set_shape_text(s, str(slide_num))
                 s["name"] = "SlideNumber"
                 included = True
@@ -1062,7 +1062,7 @@ def generate_layout_chrome_code(layout_xml: Path, media_names: dict, slide_num: 
                 s["name"] = {"ftr": "Footer", "dt": "Date", "hdr": "Header"}.get(ph)
                 included = True
         else:
-            if _is_slide_number_text(text) and y >= 6.0:
+            if _is_slide_number_text(text) and not skip_slide_number and y >= 6.0:
                 _set_shape_text(s, str(slide_num))
                 s["name"] = "SlideNumber"
                 included = True
@@ -1155,7 +1155,7 @@ def _connection_plan(shapes):
     return capture, connect_lines
 
 
-def generate_slide_code(slide_xml: Path, media_names: dict, title: str, assets_dir: Path | None = None) -> str:
+def generate_slide_code(slide_xml: Path, media_names: dict, title: str, assets_dir: Path | None = None, slide_num: int | None = None) -> str:
     """Return the body of an add_slide() function as a code string."""
     raw_shapes = read_slide_shapes(slide_xml)
     shapes = [normalize_element(s) for s in raw_shapes]
@@ -1177,8 +1177,17 @@ def generate_slide_code(slide_xml: Path, media_names: dict, title: str, assets_d
     capture, connect_lines = _connection_plan(shapes)
 
     for shape in shapes:
-        if shape.get("placeholder") in ("title", "ctrTitle"):
+        ph = shape.get("placeholder")
+        if ph in ("title", "ctrTitle"):
             shape["name"] = "Title"
+        elif ph == "sldNum" or _is_slide_number_text(_shape_text(shape)):
+            # A slide-level slide-number field/placeholder. Emit it as a dynamic
+            # SlideNumber (slide_number=n) rather than baking the literal ‹#› field
+            # marker as static text; generate_slides.py then suppresses the
+            # duplicate copy the layout-chrome pass would otherwise add.
+            shape["name"] = "SlideNumber"
+            if slide_num is not None:
+                _set_shape_text(shape, str(slide_num))
         lines.append(_code_for_any(shape, media_names, assets_dir=assets_dir, capture=capture))
 
     # Re-attach connected connectors after every shape exists (order-independent).

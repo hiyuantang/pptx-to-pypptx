@@ -108,12 +108,17 @@ def generate_slides(target: Path, project_dir: Path, slides: list[int]):
 
             layout_idx = _layout_idx(idx)
             assets_dir = project_dir / "assets"
-            body = generate_slide_code(slide_xml, media_names, title, assets_dir=assets_dir)
+            body = generate_slide_code(
+                slide_xml, media_names, title, assets_dir=assets_dir, slide_num=idx
+            )
 
             layout_xml = layout_paths[idx - 1]
             if layout_xml:
                 chrome = generate_layout_chrome_code(
-                    layout_xml, media_names, idx, footer_text, assets_dir=assets_dir
+                    layout_xml, media_names, idx, footer_text, assets_dir=assets_dir,
+                    # The slide already carries its own slide number; don't let the
+                    # layout pass add a duplicate at the same inherited position.
+                    skip_slide_number="slide_number=n" in body,
                 )
                 if chrome:
                     body = f"{body}\n{chrome}"
