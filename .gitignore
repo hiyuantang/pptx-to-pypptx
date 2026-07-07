@@ -32,3 +32,9 @@ shots/
 .idea/
 .vscode/
 *.swp
+
+# Local agent tooling — installed skills unrelated to this repo (HeyGen hyperframes,
+# etc.), symlinks into them, and their lockfile. Local environment, not project source.
+.agents/
+.claude/
+skills-lock.json
