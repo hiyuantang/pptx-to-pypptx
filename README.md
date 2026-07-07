@@ -69,8 +69,11 @@ language:
 - *"Migrate `talk.pptx` into a python-pptx project."*
 - *"What's on slide 10?"*
 - *"Change the title on slide 3 to 'Results' and make it navy."*
-- *"I edited the deck in PowerPoint — sync my changes back into the code."*
+- *"Add a slide after slide 12 titled 'Next steps.'"*
+- *"Delete slide 7."*
+- *"I edited slides 4, 16, and 32 in PowerPoint — sync those back into the code."*
 - *"Put `logo.png` in the top-right corner of the title slide."*
+- *"Roll back to the previous build."*
 
 The agent scaffolds the project, writes one Python file per slide, rebuilds the
 `.pptx`, and keeps code and deck in sync. [`SKILL.md`](./SKILL.md) is the
@@ -98,8 +101,9 @@ my-deck/
   back into the code.
 - **Add media** by dropping images, video, or GIFs into `assets/` (or just hand
   the agent the file path) and asking the agent to place them on a slide.
-- **Roll back anytime** — every rebuild archives the previous deck to `backup/`
-  as `backup_<timestamp>.pptx`, keeping the last 10.
+- **Roll back anytime** — every successful build is saved to `backup/` as
+  `backup_<timestamp>.pptx` (the last 10 are kept), so you can ask the agent to
+  restore an earlier one.
 - **Edit by hand:** `slides/*.py` (a slide's content) and `lib/design.py` (theme
   colors and fonts). **Leave to the agent:** `build_deck.py`, `lib/shapes.py`,
   and the filenames in `slides/` — ask it to add, remove, or reorder slides

@@ -11,7 +11,7 @@ Replace `<pptx-to-pypptx-dir>` below with the directory that contains this `SKIL
 
 ## Rules
 
-- **Target & iteration.** The **initial target** is the `.pptx` the user gave you; it is **read-only** — never overwrite, modify, or move it. After the first build the working target becomes **`out/<filename>.pptx`** (unless the user names a different file). Every build archives the previous output to `backup/`, so you can edit the `out/` file freely and roll back.
+- **Target & iteration.** The **initial target** is the `.pptx` the user gave you; it is **read-only** — never overwrite, modify, or move it. After the first build the working target becomes **`out/<filename>.pptx`** (unless the user names a different file). Every successful build is archived to `backup/`, so you can edit the `out/` file freely and roll back.
 - **Run the scripts; don't hand-craft XML.** The scripts handle extraction, codegen, and rebuilding. Your job is to pick the right one and verify its output. Run them as documented — don't pre-emptively edit, move, rename, or delete files.
 - **Slide-number sync.** Always use `sync_slide_numbers.py` to add, remove, or reorder slides. Never manually rename or delete `slides/s*.py`.
 - **Skill core is off-limits.** Don't edit anything under `<pptx-to-pypptx-dir>/` (templates, scripts, helpers) — including `lib/shapes.py` — unless the user explicitly asks you to fix or upgrade the skill itself. For deck work, only edit generated project files (`slides/*.py`, `lib/design.py`, etc.).
