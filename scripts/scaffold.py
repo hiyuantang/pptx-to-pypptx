@@ -12,10 +12,10 @@ Usage:
 
 import argparse
 import shutil
-import zipfile
 from pathlib import Path
 
 from helpers.assets import sync_assets
+from helpers.pptx_utils import count_slides
 
 
 def render_template(src: Path, dst: Path, replacements: dict) -> None:
@@ -86,8 +86,7 @@ def scaffold_project(
     # Make generated scripts executable
     (output_dir / "build_deck.py").chmod(0o755)
 
-    with zipfile.ZipFile(target, "r") as zf:
-        slide_count = len([n for n in zf.namelist() if n.startswith("ppt/slides/slide") and n.endswith(".xml")])
+    slide_count = count_slides(target)
 
     print(f"Scaffolded python-pptx project at {output_dir}")
     print(f"  slides directory: {slides_dir} (empty; run generate_slides.py to populate)")

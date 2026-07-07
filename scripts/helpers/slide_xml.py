@@ -1,7 +1,7 @@
 """Shared XML parsing helpers for PPTX slide shapes.
 
 Provides a single source of truth for reading shape information from a PPTX
-slide XML. Used by extract-slide.py, generate_slides.py, and the round-trip tester.
+slide XML. Used by extract_slide.py and generate_slides.py.
 """
 
 import hashlib

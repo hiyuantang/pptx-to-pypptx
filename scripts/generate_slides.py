@@ -16,53 +16,21 @@ list (3,7,9). There is no --all option.
 
 import argparse
 import re
-import sys
 import tempfile
 import zipfile
 from pathlib import Path
 
-# Make scaffold importable when running this script directly.
-_SCRIPT_DIR = Path(__file__).resolve().parent
-if str(_SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(_SCRIPT_DIR))
-
 from pptx import Presentation
 
 from helpers.assets import load_media_map, sync_assets
+from helpers.pptx_utils import count_slides, parse_slide_range
 from helpers.slide_codegen import (
     generate_slide_code,
     generate_layout_chrome_code,
     detect_footer_text,
 )
 from helpers.slide_xml import load_slide_layout_path
-from helpers.slides import get_slide_title, sanitize_name
-
-
-def parse_slide_arg(arg: str, total: int) -> list[int]:
-    """Parse '1,3,5' or '2-4' into a sorted list of 1-based slide numbers."""
-    result = set()
-    for part in arg.split(","):
-        part = part.strip()
-        if "-" in part:
-            start, end = part.split("-", 1)
-            try:
-                result.update(range(int(start), int(end) + 1))
-            except ValueError:
-                raise ValueError(f"Invalid slide range: {part!r}")
-        else:
-            try:
-                result.add(int(part))
-            except ValueError:
-                raise ValueError(f"Invalid slide number: {part!r}")
-    return sorted(n for n in result if 1 <= n <= total)
-
-
-def count_slides(pptx: Path) -> int:
-    with zipfile.ZipFile(pptx, "r") as zf:
-        return len([
-            n for n in zf.namelist()
-            if n.startswith("ppt/slides/slide") and n.endswith(".xml")
-        ])
+from helpers.slide_meta import get_slide_title, sanitize_name
 
 
 def find_existing_slide_file(project_dir: Path, idx: int) -> Path | None:
@@ -179,7 +147,7 @@ def main():
     args = parser.parse_args()
 
     total = count_slides(Path(args.target))
-    slides = parse_slide_arg(args.slides, total)
+    slides = parse_slide_range(args.slides, total, allow_all=False)
     generate_slides(Path(args.target), Path(args.project_dir), slides)
 
 

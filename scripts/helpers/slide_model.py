@@ -1,9 +1,9 @@
-"""Canonical slide model used by both the generator and the test harness.
+"""Canonical slide model consumed by the slide-code generator.
 
 This module takes the raw dictionaries produced by `slide_xml.py` and normalizes
 them so that style-derived effective properties, default run properties, and
-other implicit values are explicit. The generator consumes this model directly;
-the test harness uses it to compare target vs. generated decks.
+other implicit values are explicit. `slide_codegen.py` consumes this model
+directly when emitting python-pptx code.
 """
 
 from typing import Any

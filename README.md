@@ -39,11 +39,11 @@ pptx-to-pypptx/
 │   ├── scaffold.py          # create a new project from a target deck
 │   ├── generate_slides.py   # generate/refresh slides/sNN_*.py from a deck
 │   ├── detect_project.py    # locate an existing project
-│   ├── extract-slide.py     # dump/screenshot a single slide
+│   ├── extract_slide.py     # dump/screenshot a single slide
 │   ├── extract_notes.py     # export speaker notes to Markdown
 │   ├── sync_slide_numbers.py# reserve/close slide-number slots
 │   ├── list_layouts.py      # list slide layouts in a deck
-│   └── helpers/             # XML parsing + code generation internals
+│   └── helpers/             # internal modules (imported by the scripts, not run directly)
 └── template/                # files copied into each scaffolded project
     ├── build_deck.py
     └── lib/                 # design.py + shapes.py helper library
@@ -59,7 +59,7 @@ pptx-to-pypptx/
   - `pillow-heif>=1.0`
   - `defusedxml` (optional; used by some helper scripts)
 - Optional: [LibreOffice](https://www.libreoffice.org/) (`soffice`) for
-  `extract-slide.py --screenshot` rendering.
+  `extract_slide.py --screenshot` rendering.
 
 ## Quick start
 
@@ -83,7 +83,7 @@ uv run python <repo>/scripts/generate_slides.py \
 uv run --directory my-deck python build_deck.py --target "deck.pptx"
 
 # 4. Inspect any slide without a screenshot
-uv run python <repo>/scripts/extract-slide.py "deck.pptx" 10 --verbose
+uv run python <repo>/scripts/extract_slide.py "deck.pptx" 10 --verbose
 ```
 
 After the first build, the working target becomes `my-deck/out/my-deck.pptx`.

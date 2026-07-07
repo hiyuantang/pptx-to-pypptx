@@ -2,12 +2,12 @@
 """Extract shape layout from a target PPTX for one or more slides.
 
 Usage:
-    uv run python extract-slide.py "path/to/target.pptx" 1
-    uv run python extract-slide.py "path/to/target.pptx" 8-12
-    uv run python extract-slide.py "path/to/target.pptx" 4,5,9
-    uv run python extract-slide.py "path/to/target.pptx" all
-    uv run python extract-slide.py --verbose "path/to/target.pptx" 16
-    uv run python extract-slide.py --json "path/to/target.pptx" 7 --screenshot
+    uv run python extract_slide.py "path/to/target.pptx" 1
+    uv run python extract_slide.py "path/to/target.pptx" 8-12
+    uv run python extract_slide.py "path/to/target.pptx" 4,5,9
+    uv run python extract_slide.py "path/to/target.pptx" all
+    uv run python extract_slide.py --verbose "path/to/target.pptx" 16
+    uv run python extract_slide.py --json "path/to/target.pptx" 7 --screenshot
 """
 
 import argparse
@@ -20,7 +20,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from helpers.cli import count_slides_in_pptx, parse_slide_arg
+from helpers.pptx_utils import count_slides, parse_slide_range
 from helpers.slide_xml import read_slide_shapes, parse_slide_hidden
 
 
@@ -216,8 +216,8 @@ def main():
     args = parser.parse_args()
 
     pptx_path = Path(args.pptx)
-    total = count_slides_in_pptx(pptx_path)
-    slides = parse_slide_arg(args.slide, total)
+    total = count_slides(pptx_path)
+    slides = parse_slide_range(args.slide, total)
 
     results = []
     with tempfile.TemporaryDirectory() as tmpdir:

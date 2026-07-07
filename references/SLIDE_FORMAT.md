@@ -53,7 +53,7 @@ Draw chrome as normal shapes:
 A slide hidden in the source deck (`<p:sld show="0">`) is detected on
 generation and emitted as `shapes.set_slide_hidden(slide)` at the top of
 `add_slide`. To hide/unhide a slide by hand, add or remove that call — visible
-is the default, so there is no `show="1"`. `extract-slide.py` flags hidden
+is the default, so there is no `show="1"`. `extract_slide.py` flags hidden
 slides (`[HIDDEN]` in text output, `"hidden": true` in `--json`).
 
 ## Don'ts

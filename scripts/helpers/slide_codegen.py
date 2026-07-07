@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate python-pptx slide code from an extracted slide XML.
 
-This is used by scaffold.py to turn the target PPTX layout into working
+This is used by generate_slides.py to turn the target PPTX layout into working
 slide files instead of empty stubs. It emits code for primitives the
 template lib/shapes.py can render; everything else becomes a TODO comment.
 """
