@@ -618,6 +618,29 @@ def _code_for_connector(shape, x, y, w, h):
     )
 
 
+# Chrome shapes (title bars, footers, slide numbers) carry a stable cNvPr name so
+# a rebuilt deck round-trips: the next generate_slides run re-reads shape.name and
+# re-emits the argument below from it. These names map to a ``name=`` argument.
+_CHROME_NAMES = ("Footer", "Date", "Header", "Title")
+
+
+def _chrome_suffix(shape):
+    """Return the trailing ``name=`` / ``slide_number=n`` argument for a chrome shape.
+
+    A ``SlideNumber`` shape gets ``slide_number=n`` so the number stays dynamic
+    across rebuilds (reordering slides updates it); the other named chrome shapes
+    get ``name=`` so they keep their identity when the deck is regenerated. This
+    is the single home for that mapping — both text-box and text-shape emitters
+    call it, so the two paths can't drift. Ordinary shapes return "".
+    """
+    name = shape.get("name")
+    if name == "SlideNumber":
+        return ", slide_number=n"
+    if name in _CHROME_NAMES:
+        return f", name={name!r}"
+    return ""
+
+
 def _code_for_box(shape, x, y, w, h):
     """Emit code for add_box or add_shape."""
     geom = shape.get("geom", {})
@@ -649,17 +672,10 @@ def _code_for_box(shape, x, y, w, h):
                         pass
             kwargs.pop("adjustments", None)
         text = kwargs.pop("text", "")
-        chrome_name = shape.get("name")
-        slide_number_expr = ""
-        name_arg = ""
-        if chrome_name == "SlideNumber":
-            slide_number_expr = ", slide_number=n"
-        elif chrome_name in ("Footer", "Date", "Header", "Title"):
-            name_arg = f", name={chrome_name!r}"
         extra = ""
         if kwargs:
             extra = f", {_format_kwargs(kwargs)}"
-        extra += name_arg + slide_number_expr
+        extra += _chrome_suffix(shape)
         return f"shapes.add_box(slide, {text!r}, {x:.3f}, {y:.3f}, {w:.3f}, {h:.3f}{extra})"
 
     # Generic shape
@@ -683,17 +699,10 @@ def _code_for_text_shape(shape, x, y, w, h):
         kwargs.update(_line_kwargs(shape))
 
     text = kwargs.pop("text", "")
-    chrome_name = shape.get("name")
-    slide_number_expr = ""
-    name_arg = ""
-    if chrome_name == "SlideNumber":
-        slide_number_expr = ", slide_number=n"
-    elif chrome_name in ("Footer", "Date", "Header", "Title"):
-        name_arg = f", name={chrome_name!r}"
     extra = ""
     if kwargs:
         extra = f", {_format_kwargs(kwargs)}"
-    extra += name_arg + slide_number_expr
+    extra += _chrome_suffix(shape)
     return f"shapes.{helper}(slide, {text!r}, {x:.3f}, {y:.3f}, {w:.3f}, {h:.3f}{extra})"
 
 
