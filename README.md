@@ -78,6 +78,7 @@ language:
 - *"I edited slides 4, 16, and 32 in PowerPoint — sync those back into the code."*
 - *"Put `logo.png` in the top-right corner of the title slide."*
 - *"Roll back to the previous build."*
+- *"I updated the pptx-to-pypptx skill — migrate my project to the new version."*
 
 The agent scaffolds the project, writes one Python file per slide, rebuilds the
 `.pptx`, and keeps code and deck in sync. [`SKILL.md`](./SKILL.md) is the
