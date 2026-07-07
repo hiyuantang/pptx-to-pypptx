@@ -28,6 +28,54 @@ deterministically — while keeping the original untouched as a reference.
 - **Inspect** any slide's shapes/positions/text (and optionally render a PNG)
   without opening PowerPoint.
 
+## Installation
+
+This repo **is** the skill — [`SKILL.md`](./SKILL.md) sits at its root — so
+installing it just means cloning the repo into a directory where Claude Code
+discovers skills. There's no build step, and the skill has no dependencies of
+its own (its Python packages are installed later, per deck project — see
+[Requirements](#requirements)). The commands below are copy-paste friendly for a
+human or an AI agent: hand Claude Code this repo's URL and ask it to install the
+skill.
+
+> **"Scope" means two different things here — don't conflate them:**
+> - **Where the skill lives** (this section): a Claude Code *skills* directory —
+>   **user** scope (all your projects) or **project** scope (one repo).
+> - **Where the Python packages live** ([Requirements](#requirements)): inside
+>   each **deck project you scaffold**, never in this repo.
+
+**User scope — available in every project on your machine (recommended):**
+
+```bash
+git clone https://github.com/hiyuantang/pptx-to-pypptx.git \
+  ~/.claude/skills/pptx-to-pypptx
+```
+
+Update anytime with `git -C ~/.claude/skills/pptx-to-pypptx pull`.
+
+**Project scope — one repo only, shareable with collaborators:**
+
+```bash
+# run from the root of the repo you want the skill in
+git clone https://github.com/hiyuantang/pptx-to-pypptx.git \
+  .claude/skills/pptx-to-pypptx
+```
+
+To commit it so teammates get it on pull, drop the nested git history first
+(`rm -rf .claude/skills/pptx-to-pypptx/.git`) so your repo tracks the files
+directly instead of as a submodule, then commit `.claude/skills/`.
+
+Either scope, the folder must be named `pptx-to-pypptx` with `SKILL.md` at its
+root — the clones above do that. Start a new Claude Code session; the skill is
+discovered automatically and triggers on requests like *"migrate this pptx to
+python-pptx"*, *"sync my deck changes to code"*, or *"what's on slide 10?"*,
+then reads [`SKILL.md`](./SKILL.md) and runs the round-trip for you. (No git?
+Copy the repo folder to the same location instead.)
+
+For distributing to many people, packaging this as a Claude Code plugin (shared
+through a marketplace) is the scalable route; for personal or team use, the
+clone above is the standard, simplest path.
+
 ## Repository layout
 
 ```
@@ -62,7 +110,9 @@ pptx-to-pypptx/
 
 ## Quick start
 
-Replace `<repo>` with the path to this checkout.
+Prefer to run the tools by hand instead of through the skill/agent? Replace
+`<repo>` with wherever you cloned this repo (e.g.
+`~/.claude/skills/pptx-to-pypptx` if you installed it at user scope).
 
 ```bash
 # 1. Scaffold a project from your deck (the built deck is named after the output dir)
@@ -99,13 +149,6 @@ child positioning, slide backgrounds, speaker notes, and hidden slides.
 
 Anything truly exotic (SmartArt, animations, transitions, custom geometry that
 can't be vectorized) is emitted as a `# TODO` comment in the generated slide.
-
-## Using it as a Claude Code skill
-
-Point Claude Code at this directory as a skill. Claude reads
-[`SKILL.md`](./SKILL.md) and drives the scripts through the round-trip workflow
-automatically. The skill triggers on requests like *"migrate this pptx to
-python-pptx"*, *"sync my deck changes to code"*, or *"what's on slide 10?"*.
 
 ## License
 
