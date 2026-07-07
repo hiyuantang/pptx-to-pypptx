@@ -280,14 +280,33 @@ def _paragraph_props(p):
     if p.get("bullet") is not None:
         bullet = p["bullet"]
         if bullet == "char" and p.get("bullet_char"):
-            props["bullet"] = {"type": "char", "char": p["bullet_char"]}
+            spec = {"type": "char", "char": p["bullet_char"]}
         elif bullet == "autoNum" and p.get("bullet_type"):
-            props["bullet"] = {"type": "autoNum", "style": p["bullet_type"]}
+            spec = {"type": "autoNum", "style": p["bullet_type"]}
         elif bullet == "blip":
             # Picture bullets can't be emitted from python-pptx; use a dot.
-            props["bullet"] = {"type": "char", "char": "•"}
+            spec = {"type": "char", "char": "•"}
         else:
-            props["bullet"] = bullet
+            spec = bullet
+        # Attach glyph formatting (color/size/font) to visible bullets so they
+        # render at the authored size, not the full text size.
+        fmt = {}
+        if p.get("bullet_color") is not None:
+            fmt["color"] = _map_color(p["bullet_color"])
+        if p.get("bullet_size_pts") is not None:
+            fmt["size_pts"] = p["bullet_size_pts"]
+        elif p.get("bullet_size_pct") is not None:
+            fmt["size_pct"] = p["bullet_size_pct"]
+        if p.get("bullet_font") is not None:
+            fmt["font"] = p["bullet_font"]
+        if fmt:
+            if spec == "char":
+                spec = {"type": "char", "char": "•"}
+            elif spec == "autoNum":
+                spec = {"type": "autoNum", "style": "arabicParenR"}
+            if isinstance(spec, dict):
+                spec.update(fmt)
+        props["bullet"] = spec
     if p.get("lnSpc") is not None:
         ln = p["lnSpc"]
         if isinstance(ln, str) and ln.endswith("pts"):

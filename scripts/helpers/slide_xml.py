@@ -613,6 +613,25 @@ def _parse_para_level_props(lvlPr):
         if buBlip is not None:
             # Picture bullets cannot be round-tripped; fall back to a dot.
             props['bullet'] = 'blip'
+
+    # Bullet glyph formatting: color, size (absolute points or percent of the
+    # run font), and font. Captured independently of the glyph kind so a bullet
+    # renders at its authored size instead of the full text size.
+    buClr = lvlPr.find(f'{{{A}}}buClr')
+    if buClr is not None:
+        col = parse_color(buClr)
+        if col is not None:
+            props['bullet_color'] = col
+    buSzPts = lvlPr.find(f'{{{A}}}buSzPts')
+    if buSzPts is not None and buSzPts.get('val'):
+        props['bullet_size_pts'] = int(buSzPts.get('val')) / 100
+    else:
+        buSzPct = lvlPr.find(f'{{{A}}}buSzPct')
+        if buSzPct is not None and buSzPct.get('val'):
+            props['bullet_size_pct'] = int(buSzPct.get('val')) / 1000
+    buFont = lvlPr.find(f'{{{A}}}buFont')
+    if buFont is not None and buFont.get('typeface'):
+        props['bullet_font'] = buFont.get('typeface')
     return props
 
 
@@ -749,7 +768,8 @@ def parse_text_body(txBody, slide_rels=None, placeholder_run_defaults=None, plac
             'marL': para_defaults.get('marL'),
             'bullet': para_defaults.get('bullet'),
         }
-        for extra in ('bullet_char', 'bullet_type'):
+        for extra in ('bullet_char', 'bullet_type', 'bullet_color',
+                      'bullet_size_pts', 'bullet_size_pct', 'bullet_font'):
             if extra in para_defaults:
                 para[extra] = para_defaults[extra]
         paragraphs.append(para)

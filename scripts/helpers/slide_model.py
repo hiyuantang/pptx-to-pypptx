@@ -120,9 +120,13 @@ def normalize_paragraph(p: dict, body_defaults: dict | None = None) -> dict:
         "text": p.get("text", ""),
         "runs": runs,
     }
-    for key in ("algn", "lnSpc", "indent", "marL", "bullet"):
+    for key in ("algn", "lnSpc", "indent", "marL", "bullet",
+                "bullet_char", "bullet_type", "spaceBefore", "spaceAfter",
+                "bullet_size_pts", "bullet_size_pct", "bullet_font"):
         if p.get(key) is not None:
             out[key] = p[key]
+    if p.get("bullet_color") is not None:
+        out["bullet_color"] = _scheme_to_theme(p["bullet_color"])
     return out
 
 

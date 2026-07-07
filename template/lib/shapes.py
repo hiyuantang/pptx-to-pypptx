@@ -619,7 +619,8 @@ def _set_paragraph_bullet(p, bullet):
     if bullet is None:
         return
     pPr = p._p.get_or_add_pPr()
-    for tag in (qn("a:buNone"), qn("a:buChar"), qn("a:buAutoNum")):
+    for tag in (qn("a:buClr"), qn("a:buSzPts"), qn("a:buSzPct"), qn("a:buFont"),
+                qn("a:buNone"), qn("a:buChar"), qn("a:buAutoNum")):
         for el in pPr.findall(tag):
             pPr.remove(el)
     if bullet == "none":
@@ -634,6 +635,19 @@ def _set_paragraph_bullet(p, bullet):
         pPr.append(bu)
     elif isinstance(bullet, dict):
         kind = bullet.get("type")
+        # Glyph formatting (color/size/font). _reorder_pPr moves these ahead of
+        # the glyph element (buChar/buAutoNum) as the OOXML schema requires.
+        color = bullet.get("color")
+        if color is not None:
+            _apply_color_element(etree.SubElement(pPr, qn("a:buClr")), color)
+        if bullet.get("size_pts") is not None:
+            etree.SubElement(pPr, qn("a:buSzPts")).set(
+                "val", str(int(round(float(bullet["size_pts"]) * 100))))
+        elif bullet.get("size_pct") is not None:
+            etree.SubElement(pPr, qn("a:buSzPct")).set(
+                "val", str(int(round(float(bullet["size_pct"]) * 1000))))
+        if bullet.get("font") is not None:
+            etree.SubElement(pPr, qn("a:buFont")).set("typeface", bullet["font"])
         if kind == "char":
             bu = etree.Element(qn("a:buChar"))
             bu.set("char", bullet.get("char", "•"))
