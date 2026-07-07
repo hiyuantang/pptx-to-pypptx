@@ -55,6 +55,16 @@ stays a local install. Then start a new Claude Code session — the skill is
 auto-discovered and triggers on requests like *"migrate this pptx to
 python-pptx"* or *"what's on slide 10?"*.
 
+## Updating
+
+The skill is a git clone — update it in place, then ask the agent to migrate
+your existing deck projects to the new version:
+
+```bash
+git -C ~/.claude/skills/pptx-to-pypptx pull   # user scope
+git -C .claude/skills/pptx-to-pypptx pull     # project scope
+```
+
 ## Requirements
 
 - Python 3.10+
@@ -78,7 +88,7 @@ language:
 - *"I edited slides 4, 16, and 32 in PowerPoint — sync those back into the code."*
 - *"Put `logo.png` in the top-right corner of the title slide."*
 - *"Roll back to the previous build."*
-- *"I updated the pptx-to-pypptx skill — migrate my project to the new version."*
+- *"I pulled the latest pptx-to-pypptx skill — migrate my project to the new version."*
 
 The agent scaffolds the project, writes one Python file per slide, rebuilds the
 `.pptx`, and keeps code and deck in sync. [`SKILL.md`](./SKILL.md) is the

@@ -114,6 +114,8 @@ By default, assume the human edited the working deck at `out/<filename>.pptx`. T
 
 Re-baseline an existing project onto a new skill version by regenerating it from its own `out/<name>.pptx` (the deck round-trips).
 
+First, **pull the new version** into the skill directory (it is a git clone of the repo): `git -C <pptx-to-pypptx-dir> pull`. Then re-baseline each project:
+
 1. **Build** (`build_deck.py`) so `out/<name>.pptx` is current, then **commit** the project — re-scaffolding resets `lib/design.py`, re-syncs `assets/`, and empties `slides/`, so hand edits must be recoverable.
 2. **Re-scaffold in place** from that deck (`scaffold.py --target <output-dir>/out/<name>.pptx --output-dir <output-dir>`).
 3. **Regenerate all slides** (`generate_slides.py --slides 1-N`).
