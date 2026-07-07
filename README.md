@@ -34,22 +34,90 @@ This repo **is** the skill (`SKILL.md` is at its root), so installing it just
 means cloning it into a Claude Code skills directory. Its Python dependencies
 install separately, per deck project (see [Requirements](#requirements)).
 
-**User scope** — available in every project (recommended):
+**User scope** — available in every project on your machine:
 
 ```bash
 git clone https://github.com/hiyuantang/pptx-to-pypptx.git ~/.claude/skills/pptx-to-pypptx
 ```
 
-**Project scope** — available only in that repo:
+**Project scope** — available only in one repo:
 
 ```bash
 git clone https://github.com/hiyuantang/pptx-to-pypptx.git .claude/skills/pptx-to-pypptx
 ```
 
-Add `.claude/skills/pptx-to-pypptx/` to the repo's `.gitignore` so the clone
+Add `.claude/skills/pptx-to-pypptx/` to that repo's `.gitignore` so the clone
 stays a local install. Then start a new Claude Code session — the skill is
 auto-discovered and triggers on requests like *"migrate this pptx to
 python-pptx"* or *"what's on slide 10?"*.
+
+## Requirements
+
+- Python 3.10+
+- [`uv`](https://docs.astral.sh/uv/) for environment and command running
+- Python packages (the agent installs these into each deck **project**, not this
+  repo): `python-pptx>=1.0.0`, `cairosvg>=2.0`, `pillow-heif>=1.0`
+- Optional: [LibreOffice](https://www.libreoffice.org/) for rendering slides to
+  images.
+
+## Using it
+
+You don't run any commands yourself — you talk to your coding agent (Claude
+Code) and it drives the tools for you. Point it at a deck and ask in plain
+language:
+
+- *"Migrate `talk.pptx` into a python-pptx project."*
+- *"What's on slide 10?"*
+- *"Change the title on slide 3 to 'Results' and make it navy."*
+- *"I edited the deck in PowerPoint — sync my changes back into the code."*
+- *"Put `logo.png` in the top-right corner of the title slide."*
+
+The agent scaffolds the project, writes one Python file per slide, rebuilds the
+`.pptx`, and keeps code and deck in sync. [`SKILL.md`](./SKILL.md) is the
+playbook it follows.
+
+### Your project
+
+The agent creates a project folder (you choose the name):
+
+```
+my-deck/
+├── slides/            # one .py file per slide — the deck's content
+├── lib/
+│   ├── design.py      # colors, fonts, spacing — the deck's theme
+│   └── shapes.py      # drawing engine — the agent's toolbox
+├── assets/            # images, video, GIFs, SVGs used by the slides
+├── out/
+│   └── my-deck.pptx   # the built deck — open and share this one
+├── backup/            # the last 10 builds, auto-saved on every rebuild
+└── build_deck.py      # generated plumbing
+```
+
+- **Open and share `out/<name>.pptx`.** That's the finished deck. Prefer to make
+  a quick change in PowerPoint? Edit that file, then ask the agent to sync it
+  back into the code.
+- **Add media** by dropping images, video, or GIFs into `assets/` (or just hand
+  the agent the file path) and asking the agent to place them on a slide.
+- **Roll back anytime** — every rebuild archives the previous deck to `backup/`
+  as `backup_<timestamp>.pptx`, keeping the last 10.
+- **Edit by hand:** `slides/*.py` (a slide's content) and `lib/design.py` (theme
+  colors and fonts). **Leave to the agent:** `build_deck.py`, `lib/shapes.py`,
+  and the filenames in `slides/` — ask it to add, remove, or reorder slides
+  rather than renaming files yourself.
+- **Your original `.pptx` is never modified** — it stays as a read-only
+  reference.
+
+## Supported features
+
+Rectangles and preset shapes, lines/arrows/connectors, solid/gradient/pattern/
+theme fills, rich text (runs, fonts, colors, bullets, alignment, hyperlinks,
+Office Math), shape effects (shadow/glow/reflection/soft-edge), images (with
+cropping; SVG/WebP/HEIC conversion) and freeform vector shapes, tables with
+merged cells, charts, embedded video, true group shapes with group-relative
+child positioning, slide backgrounds, speaker notes, and hidden slides.
+
+Anything truly exotic (SmartArt, animations, transitions, custom geometry that
+can't be vectorized) is emitted as a `# TODO` comment in the generated slide.
 
 ## Repository layout
 
@@ -71,59 +139,6 @@ pptx-to-pypptx/
     ├── build_deck.py
     └── lib/                 # design.py + shapes.py helper library
 ```
-
-## Requirements
-
-- Python 3.10+
-- [`uv`](https://docs.astral.sh/uv/) for environment and command running
-- Python packages (installed in the **project** you scaffold, not this repo):
-  - `python-pptx>=1.0.0`
-  - `cairosvg>=2.0`
-  - `pillow-heif>=1.0`
-- Optional: [LibreOffice](https://www.libreoffice.org/) (`soffice`) for
-  `extract_slide.py --screenshot` rendering.
-
-## Quick start
-
-Prefer to run the tools by hand instead of through the skill/agent? Replace
-`<repo>` with wherever you cloned this repo (e.g.
-`~/.claude/skills/pptx-to-pypptx` if you installed it at user scope).
-
-```bash
-# 1. Scaffold a project from your deck (the built deck is named after the output dir)
-uv run python <repo>/scripts/scaffold.py \
-  --target "deck.pptx" \
-  --output-dir my-deck
-
-# 2. Generate slide code for every slide (accepts 14 | 8-12 | 4,5,9)
-uv run python <repo>/scripts/generate_slides.py \
-  --target "deck.pptx" \
-  --project-dir my-deck \
-  --slides 1-20
-
-# 3. Build the deck (run from the project root)
-uv run --directory my-deck python build_deck.py --target "deck.pptx"
-
-# 4. Inspect any slide without a screenshot
-uv run python <repo>/scripts/extract_slide.py "deck.pptx" 10 --verbose
-```
-
-After the first build, the working target becomes `my-deck/out/my-deck.pptx`.
-Edit `slides/*.py`, rebuild, and regenerate a slide from the fresh output to keep
-the code canonical. See [`SKILL.md`](./SKILL.md) for the full workflow, including
-partial updates and slide-number syncing.
-
-## Supported features
-
-Rectangles and preset shapes, lines/arrows/connectors, solid/gradient/pattern/
-theme fills, rich text (runs, fonts, colors, bullets, alignment, hyperlinks,
-Office Math), shape effects (shadow/glow/reflection/soft-edge), images (with
-cropping; SVG/WebP/HEIC conversion) and freeform vector shapes, tables with
-merged cells, charts, embedded video, true group shapes with group-relative
-child positioning, slide backgrounds, speaker notes, and hidden slides.
-
-Anything truly exotic (SmartArt, animations, transitions, custom geometry that
-can't be vectorized) is emitted as a `# TODO` comment in the generated slide.
 
 ## License
 
