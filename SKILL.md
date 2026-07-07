@@ -24,7 +24,6 @@ Replace `<pptx-to-pypptx-dir>` below with the directory that contains this `SKIL
 - Python with `uv`.
 - These packages in the **project-root** environment (add to `pyproject.toml`/`requirements.txt`, then `uv sync` from the project root):
   - `python-pptx>=1.0.0`, `cairosvg>=2.0`, `pillow-heif>=1.0`
-  - `defusedxml` (optional; used by some helper scripts)
 
 ## Project layout this skill produces
 

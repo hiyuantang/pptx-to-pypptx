@@ -57,7 +57,6 @@ pptx-to-pypptx/
   - `python-pptx>=1.0.0`
   - `cairosvg>=2.0`
   - `pillow-heif>=1.0`
-  - `defusedxml` (optional; used by some helper scripts)
 - Optional: [LibreOffice](https://www.libreoffice.org/) (`soffice`) for
   `extract_slide.py --screenshot` rendering.
 
