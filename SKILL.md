@@ -1,6 +1,6 @@
 ---
 name: pptx-to-pypptx
-description: "Use when the user wants to migrate, edit, inspect, or round-trip a PowerPoint deck through python-pptx code. Triggers on 'migrate pptx to python', 'python-pptx project', 'pptx to python-pptx', 'turn deck into code', 'sync pptx changes to code', 'inspect slide', 'what is on this slide', or any request to recreate, inspect, or maintain a .pptx using python-pptx."
+description: "Use when the user wants to migrate, edit, inspect, round-trip, or upgrade a PowerPoint deck through python-pptx code. Triggers on 'migrate pptx to python', 'python-pptx project', 'pptx to python-pptx', 'turn deck into code', 'sync pptx changes to code', 'inspect slide', 'what is on this slide', 'upgrade the pptx-to-pypptx skill', or any request to recreate, inspect, or maintain a .pptx using python-pptx."
 ---
 
 # PPTX ⇄ python-pptx Round-Trip Skill
@@ -110,16 +110,24 @@ By default, assume the human edited the working deck at `out/<filename>.pptx`. T
 
 > **Agent rule:** No need to visually inspect slides unless the user asks. Use `extract_slide.py` to see what is on a slide without screenshots. Success = the requested slides regenerate with no unexpected `# TODO` comments.
 
-### Skill update migration (the skill itself was upgraded)
+### Upgrade the skill
 
-Re-baseline an existing project onto a new skill version by regenerating it from its own `out/<name>.pptx` (the deck round-trips).
+Triggered by "upgrade the pptx-to-pypptx skill." Pull, then migrate projects only if code changed.
 
-First, **pull the new version** into the skill directory (it is a git clone of the repo): `git -C <pptx-to-pypptx-dir> pull`. Then re-baseline each project:
-
-1. **Build** (`build_deck.py`) so `out/<name>.pptx` is current, then **commit** the project — re-scaffolding resets `lib/design.py`, re-syncs `assets/`, and empties `slides/`, so hand edits must be recoverable.
-2. **Re-scaffold in place** from that deck (`scaffold.py --target <output-dir>/out/<name>.pptx --output-dir <output-dir>`).
-3. **Regenerate all slides** (`generate_slides.py --slides 1-N`).
-4. **Build** (`build_deck.py`) and check for new `# TODO`s.
+1. **Pull and diff:**
+   ```bash
+   OLD=$(git -C <pptx-to-pypptx-dir> rev-parse HEAD)
+   git -C <pptx-to-pypptx-dir> pull
+   git -C <pptx-to-pypptx-dir> diff --name-only "$OLD" HEAD
+   ```
+   "Already up to date." → stop.
+2. **Re-read `SKILL.md` if it changed** — your loaded copy is now stale.
+3. **Decide.** Migrate only if the diff touched **`scripts/`** or **`template/`**. Docs-only (`*.md`, `LICENSE`, `references/`) → report "no migration needed" and stop.
+4. **Re-baseline each project** (`detect_project.py`) from its own `out/<name>.pptx`:
+   1. **Build** (`build_deck.py`), then **commit** the project — re-scaffolding resets `lib/design.py`, re-syncs `assets/`, and empties `slides/`.
+   2. **Re-scaffold in place** (`scaffold.py --target <output-dir>/out/<name>.pptx --output-dir <output-dir>`).
+   3. **Regenerate all slides** (`generate_slides.py --slides 1-N`).
+   4. **Build** (`build_deck.py`) and check for new `# TODO`s.
 
 ### Direct code edits / free inspection
 

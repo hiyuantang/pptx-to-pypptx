@@ -57,13 +57,9 @@ python-pptx"* or *"what's on slide 10?"*.
 
 ## Updating
 
-The skill is a git clone — update it in place, then ask the agent to migrate
-your existing deck projects to the new version:
-
-```bash
-git -C ~/.claude/skills/pptx-to-pypptx pull   # user scope
-git -C .claude/skills/pptx-to-pypptx pull     # project scope
-```
+Ask the agent to **"upgrade the pptx-to-pypptx skill."** It pulls the latest
+version, checks the diff, and re-baselines your deck projects only if the
+tooling changed. (It's a git clone, so `git -C <clone-dir> pull` also works.)
 
 ## Requirements
 
@@ -88,7 +84,7 @@ language:
 - *"I edited slides 4, 16, and 32 in PowerPoint — sync those back into the code."*
 - *"Put `logo.png` in the top-right corner of the title slide."*
 - *"Roll back to the previous build."*
-- *"I pulled the latest pptx-to-pypptx skill — migrate my project to the new version."*
+- *"Upgrade the pptx-to-pypptx skill."*
 
 The agent scaffolds the project, writes one Python file per slide, rebuilds the
 `.pptx`, and keeps code and deck in sync. [`SKILL.md`](./SKILL.md) is the
