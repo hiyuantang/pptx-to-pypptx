@@ -52,7 +52,7 @@ my-deck/
 
 | Command | What it does |
 |---|---|
-| `scaffold.py` | Create the project structure and copy assets from the target. Does **not** generate slide code or a `pyproject.toml`. |
+| `scaffold.py` | Create the project structure, copy assets, and auto-detect the footer into `lib/design.py` (`FOOTER_TEXT`). The built deck is named after `<output-dir>`. Does **not** generate slide code or a `pyproject.toml`. |
 | `generate_slides.py` | Fully overwrite selected `slides/sNN_*.py` from the target. `--slides` is required (`4` \| `2-5` \| `3,7,9`); there is no `all`. |
 | `sync_slide_numbers.py` | Reserve slots (`--add`) or close gaps (`--delete`) by renaming `slides/s*.py`. Run **before** `generate_slides.py`; only renames/deletes files. Add `--apply` to act (default is a dry run). |
 | `extract_slide.py` | Dump a slide's shapes — position, size, text, fill, font, z-order, `[HIDDEN]`. `--verbose` for detail, `--screenshot` for a PNG, `--json` for machine output. Accepts `all`. |
@@ -64,10 +64,9 @@ my-deck/
 Canonical invocations:
 
 ```bash
-# Scaffold a new project from the target deck
+# Scaffold a new project from the target deck (the built deck is named after <output-dir>)
 uv run python <pptx-to-pypptx-dir>/scripts/scaffold.py \
-  --target "<target.pptx>" --output-dir <output-dir> \
-  --project-name <project-name> --output-filename <output-filename>
+  --target "<target.pptx>" --output-dir <output-dir>
 
 # Generate slide code (accepts 14 | 8-12 | 4,5,9 — no "all")
 uv run python <pptx-to-pypptx-dir>/scripts/generate_slides.py \

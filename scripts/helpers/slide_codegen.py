@@ -1065,6 +1065,10 @@ def generate_layout_chrome_code(layout_xml: Path, media_names: dict, slide_num: 
             continue
 
         code = _code_for_any(s, media_names, assets_dir=assets_dir)
+        if s.get("name") == "Footer" and footer_text:
+            # Reference the central design constant instead of a baked-in literal,
+            # so editing design.FOOTER_TEXT updates the footer on every slide.
+            code = code.replace(repr(footer_text), "d.FOOTER_TEXT", 1)
         if code and not code.lstrip().startswith("# TODO"):
             lines.append(code)
 

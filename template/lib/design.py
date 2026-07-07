@@ -41,5 +41,5 @@ FONT = {
     "bold": "Arial Bold",
 }
 
-# Footer text — edit to match your deck
-FOOTER_TEXT = "__FOOTER_TEXT__"
+# Footer text — auto-detected at scaffold time; edit to change it on every slide.
+FOOTER_TEXT = __FOOTER_TEXT__

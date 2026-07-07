@@ -118,10 +118,16 @@ def generate_slides(target: Path, project_dir: Path, slides: list[int]):
                 if chrome:
                     body = f"{body}\n{chrome}"
 
+            imports = (
+                "from lib import shapes\n"
+                "from pptx.enum.text import PP_ALIGN, MSO_ANCHOR\n"
+                "from pptx.dml.color import RGBColor\n"
+            )
+            # Chrome that references the central footer constant needs design.
+            if "d.FOOTER_TEXT" in body:
+                imports += "from lib import design as d\n"
             new_path.write_text(
-                f'from lib import shapes\n'
-                f'from pptx.enum.text import PP_ALIGN, MSO_ANCHOR\n'
-                f'from pptx.dml.color import RGBColor\n\n'
+                f'{imports}\n'
                 f'TITLE = {title!r}\n'
                 f'LAYOUT = {layout_idx}\n\n'
                 f'def add_slide(prs, slide, n):\n'

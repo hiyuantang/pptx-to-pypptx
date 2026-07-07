@@ -2,20 +2,23 @@
 """Scaffold a new python-pptx project from a target PPTX.
 
 Usage:
-    uv run python scaffold.py \
-        --target "path/to/target.pptx" \
-        --output-dir my-deck \
-        [--project-name my-deck] \
-        [--output-filename my-deck.pptx] \
-        [--footer-text "My Name"]
+    uv run python scaffold.py --target "path/to/target.pptx" --output-dir my-deck
+
+The generated deck is named after the output directory (build_deck.py writes
+out/<output-dir-name>.pptx). The deck footer is auto-detected from the target
+and written into lib/design.py as FOOTER_TEXT; generated slide chrome references
+that constant, so editing it there updates the footer on every slide.
 """
 
 import argparse
 import shutil
+import tempfile
+import zipfile
 from pathlib import Path
 
 from helpers.assets import sync_assets
 from helpers.pptx_utils import count_slides
+from helpers.slide_codegen import detect_footer_text
 
 
 def render_template(src: Path, dst: Path, replacements: dict) -> None:
@@ -26,13 +29,16 @@ def render_template(src: Path, dst: Path, replacements: dict) -> None:
     dst.write_text(text, encoding="utf-8")
 
 
-def scaffold_project(
-    target: Path,
-    output_dir: Path,
-    project_name: str,
-    output_filename: str,
-    footer_text: str,
-) -> None:
+def detect_footer(target: Path) -> str:
+    """Infer the deck footer from the target's slide layouts (may be empty)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with zipfile.ZipFile(target, "r") as zf:
+            zf.extractall(tmpdir)
+        layouts = sorted((Path(tmpdir) / "ppt" / "slideLayouts").glob("slideLayout*.xml"))
+        return detect_footer_text(layouts) or ""
+
+
+def scaffold_project(target: Path, output_dir: Path) -> None:
     if not target.exists():
         raise FileNotFoundError(f"Target PPTX not found: {target}")
 
@@ -50,7 +56,7 @@ def scaffold_project(
     if not template_dir.exists():
         raise FileNotFoundError(f"Template directory not found: {template_dir}")
 
-# Clear previous scaffold output so re-runs stay consistent.
+    # Clear previous scaffold output so re-runs stay consistent.
     # Never delete .pptx files that a human may have placed in the output dir.
     for f in slides_dir.glob("s*.py"):
         f.unlink()
@@ -69,11 +75,11 @@ def scaffold_project(
     backup_dir = output_dir / "backup"
     backup_dir.mkdir(exist_ok=True)
 
-    replacements = {
-        "__PROJECT_NAME__": project_name,
-        "__OUTPUT_FILENAME__": output_filename,
-        "__FOOTER_TEXT__": footer_text,
-    }
+    # Auto-detect the deck footer and bake it into design.py as FOOTER_TEXT.
+    # design.py uses FOOTER_TEXT = __FOOTER_TEXT__ (no quotes), so we substitute
+    # a repr'd value to stay safe for any footer string. Generated slide chrome
+    # references d.FOOTER_TEXT, so editing it there updates every slide.
+    replacements = {"__FOOTER_TEXT__": repr(detect_footer(target))}
 
     # Copy top-level templates
     render_template(template_dir / "build_deck.py", output_dir / "build_deck.py", replacements)
@@ -98,20 +104,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Scaffold a python-pptx project from a target PPTX")
     parser.add_argument("--target", required=True, help="Target PPTX file")
     parser.add_argument("--output-dir", required=True, help="Output directory for the new project")
-    parser.add_argument("--project-name", default="my-deck", help="Project name (default: my-deck)")
-    parser.add_argument(
-        "--output-filename",
-        default=None,
-        help="Generated PPTX filename (default: <project-name>.pptx)",
-    )
-    parser.add_argument("--footer-text", default="", help="Footer text (default: empty)")
     args = parser.parse_args()
 
-    output_filename = args.output_filename or f"{args.project_name}.pptx"
-    scaffold_project(
-        Path(args.target),
-        Path(args.output_dir),
-        args.project_name,
-        output_filename,
-        args.footer_text,
-    )
+    scaffold_project(Path(args.target), Path(args.output_dir))

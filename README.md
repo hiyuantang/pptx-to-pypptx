@@ -66,12 +66,10 @@ pptx-to-pypptx/
 Replace `<repo>` with the path to this checkout.
 
 ```bash
-# 1. Scaffold a project from your deck
+# 1. Scaffold a project from your deck (the built deck is named after the output dir)
 uv run python <repo>/scripts/scaffold.py \
   --target "deck.pptx" \
-  --output-dir my-deck \
-  --project-name my-deck \
-  --output-filename my-deck
+  --output-dir my-deck
 
 # 2. Generate slide code for every slide (accepts 14 | 8-12 | 4,5,9)
 uv run python <repo>/scripts/generate_slides.py \

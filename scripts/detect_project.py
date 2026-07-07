@@ -27,41 +27,29 @@ def _is_project_dir(path: Path) -> bool:
 def _find_project(start: Path) -> Path | None:
     if _is_project_dir(start):
         return start
-    for child in start.iterdir():
+    # Sort for deterministic results when several projects sit side by side.
+    for child in sorted(start.iterdir()):
         if child.is_dir() and _is_project_dir(child):
             return child
     return None
 
 
-def _read_output_filename(project_dir: Path) -> str | None:
-    build_deck = project_dir / "build_deck.py"
-    try:
-        text = build_deck.read_text(encoding="utf-8")
-        for line in text.splitlines():
-            if '__OUTPUT_FILENAME__' in line and '.pptx' in line:
-                # Rendered template contains e.g. prs.save(out / "my-deck.pptx")
-                for token in line.split('"'):
-                    if token.endswith(".pptx"):
-                        return token
-                for token in line.split("'"):
-                    if token.endswith(".pptx"):
-                        return token
-    except Exception:
-        pass
+def _output_pptx(project_dir: Path) -> tuple[str, Path | None]:
+    """Return the expected output filename and the actual built file, if any.
 
-    pyproject = project_dir / "pyproject.toml"
-    try:
-        text = pyproject.read_text(encoding="utf-8")
-        for line in text.splitlines():
-            if "name" in line and "=" in line:
-                parts = line.split("=")
-                if len(parts) == 2:
-                    candidate = parts[1].strip().strip('"').strip("'")
-                    if candidate:
-                        return f"{candidate}.pptx"
-    except Exception:
-        pass
-    return None
+    build_deck.py names the deck after its own directory — it writes
+    ``out/<project-dir-name>.pptx`` (see template/build_deck.py). The file only
+    exists after a build; if the directory or deck was renamed by hand, fall
+    back to the newest ``out/*.pptx``.
+    """
+    expected = f"{project_dir.name}.pptx"
+    out_dir = project_dir / "out"
+    if (out_dir / expected).is_file():
+        return expected, out_dir / expected
+    built = sorted(out_dir.glob("*.pptx"), key=lambda p: p.stat().st_mtime)
+    if built:
+        return built[-1].name, built[-1]
+    return expected, None
 
 
 def main():
@@ -86,21 +74,21 @@ def main():
         sys.exit(1)
 
     slide_files = sorted((project_dir / "slides").glob("s*.py"))
-    out_pptx = project_dir / "out" / (_read_output_filename(project_dir) or "")
+    output_filename, out_pptx = _output_pptx(project_dir)
     backup_dir = project_dir / "backup"
     backup_files = sorted(backup_dir.glob("backup_*.pptx"), key=lambda p: p.name)
 
     result = {
         "found": True,
         "project_dir": str(project_dir),
-        "output_filename": _read_output_filename(project_dir),
+        "output_filename": output_filename,
         "slide_count": len(slide_files),
         "slide_files": [f.name for f in slide_files],
         "has_backup_dir": backup_dir.is_dir(),
         "backup_count": len(backup_files),
         "latest_backup": str(backup_files[-1]) if backup_files else None,
-        "output_pptx_exists": out_pptx.is_file(),
-        "output_pptx_path": str(out_pptx) if out_pptx.is_file() else None,
+        "output_pptx_exists": out_pptx is not None,
+        "output_pptx_path": str(out_pptx) if out_pptx else None,
     }
     print(json.dumps(result, indent=2))
 
