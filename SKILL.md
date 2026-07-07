@@ -110,6 +110,15 @@ By default, assume the human edited the working deck at `out/<filename>.pptx`. T
 
 > **Agent rule:** No need to visually inspect slides unless the user asks. Use `extract_slide.py` to see what is on a slide without screenshots. Success = the requested slides regenerate with no unexpected `# TODO` comments.
 
+### Skill update migration (the skill itself was upgraded)
+
+Re-baseline an existing project onto a new skill version by regenerating it from its own `out/<name>.pptx` (the deck round-trips).
+
+1. **Build** (`build_deck.py`) so `out/<name>.pptx` is current, then **commit** the project — re-scaffolding resets `lib/design.py`, re-syncs `assets/`, and empties `slides/`, so hand edits must be recoverable.
+2. **Re-scaffold in place** from that deck (`scaffold.py --target <output-dir>/out/<name>.pptx --output-dir <output-dir>`).
+3. **Regenerate all slides** (`generate_slides.py --slides 1-N`).
+4. **Build** (`build_deck.py`) and check for new `# TODO`s.
+
 ### Direct code edits / free inspection
 
 You can edit the generated Python directly without touching the target. See [`references/SLIDE_FORMAT.md`](./references/SLIDE_FORMAT.md) for the required file layout and helper conventions.
