@@ -11,6 +11,7 @@ that constant, so editing it there updates the footer on every slide.
 """
 
 import argparse
+import json
 import shutil
 import tempfile
 import zipfile
@@ -27,6 +28,49 @@ def render_template(src: Path, dst: Path, replacements: dict) -> None:
     for key, value in replacements.items():
         text = text.replace(key, value)
     dst.write_text(text, encoding="utf-8")
+
+
+def register_autosync_hook(output_dir: Path, autosync_script: Path) -> Path:
+    """Register the autosync hook in the project's .claude/settings.local.json.
+
+    Adds a ``UserPromptSubmit`` and ``SessionStart`` hook that runs
+    ``autosync.py``, so editing out/<name>.pptx in PowerPoint and then talking to
+    the agent auto-syncs the affected slides back into code. Merges with any
+    existing settings and is idempotent across re-scaffolds. We use
+    settings.local.json (personal, git-ignored by convention) because the command
+    embeds this machine's absolute skill path.
+    """
+    claude_dir = output_dir / ".claude"
+    claude_dir.mkdir(exist_ok=True)
+    settings_path = claude_dir / "settings.local.json"
+
+    settings = {}
+    if settings_path.is_file():
+        try:
+            settings = json.loads(settings_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            settings = {}
+
+    # $CLAUDE_PROJECT_DIR (set by Claude Code for hooks) keeps the project path
+    # relocatable; only the skill's own path is absolute.
+    command = (
+        'uv run --directory "$CLAUDE_PROJECT_DIR" '
+        f'python "{autosync_script}" --project-dir "$CLAUDE_PROJECT_DIR"'
+    )
+
+    hooks = settings.setdefault("hooks", {})
+    for event in ("UserPromptSubmit", "SessionStart"):
+        groups = hooks.setdefault(event, [])
+        already = any(
+            h.get("command") == command
+            for group in groups
+            for h in group.get("hooks", [])
+        )
+        if not already:
+            groups.append({"hooks": [{"type": "command", "command": command}]})
+
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    return settings_path
 
 
 def detect_footer(target: Path) -> str:
@@ -88,6 +132,7 @@ def scaffold_project(target: Path, output_dir: Path) -> None:
     render_template(template_dir / "lib" / "__init__.py", lib_dir / "__init__.py", replacements)
     render_template(template_dir / "lib" / "design.py", lib_dir / "design.py", replacements)
     render_template(template_dir / "lib" / "shapes.py", lib_dir / "shapes.py", replacements)
+    render_template(template_dir / "lib" / "roundtrip_state.py", lib_dir / "roundtrip_state.py", replacements)
 
     # Capture the base deck (masters/layouts/theme, no slides) into lib/ so
     # build_deck.py is self-contained and needs no source .pptx at build time.
@@ -96,6 +141,11 @@ def scaffold_project(target: Path, output_dir: Path) -> None:
     # Make generated scripts executable
     (output_dir / "build_deck.py").chmod(0o755)
 
+    # Register the auto-sync hook so future PowerPoint edits to out/<name>.pptx
+    # sync back into code automatically on the next agent prompt.
+    autosync_script = Path(__file__).resolve().parent / "autosync.py"
+    settings_path = register_autosync_hook(output_dir, autosync_script)
+
     slide_count = count_slides(target)
 
     print(f"Scaffolded python-pptx project at {output_dir}")
@@ -103,6 +153,7 @@ def scaffold_project(target: Path, output_dir: Path) -> None:
     print(f"  target slides: {slide_count}")
     print(f"  assets: {output_dir / 'assets'}")
     print(f"  base deck: {lib_dir / 'base.pptx'} (masters/layouts/theme, no slides)")
+    print(f"  auto-sync hook: {settings_path} (approve it in Claude Code; active next session)")
 
 
 if __name__ == "__main__":

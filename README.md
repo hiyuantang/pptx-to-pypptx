@@ -28,7 +28,8 @@ deterministically — while keeping the original untouched as a reference.
 - **Build** the deck back into a `.pptx`, archiving the previous output to
   `backup/` on every run.
 - **Sync** code from a manually edited deck by regenerating only the affected
-  slides.
+  slides — automatically, via a hook that runs whenever you save the deck in
+  PowerPoint and then send the agent any message.
 - **Inspect** any slide's shapes/positions/text (and optionally render a PNG)
   without opening PowerPoint.
 
@@ -81,7 +82,6 @@ language:
 - *"Change the title on slide 3 to 'Results' and make it navy."*
 - *"Add a slide after slide 12 titled 'Next steps.'"*
 - *"Delete slide 7."*
-- *"I edited slides 4, 16, and 32 in PowerPoint — sync those back into the code."*
 - *"Put `logo.png` in the top-right corner of the title slide."*
 - *"Roll back to the previous build."*
 - *"Upgrade the pptx-to-pypptx skill."*
@@ -89,6 +89,15 @@ language:
 The agent scaffolds the project, writes one Python file per slide, rebuilds the
 `.pptx`, and keeps code and deck in sync. [`SKILL.md`](./SKILL.md) is the
 playbook it follows.
+
+### Editing in PowerPoint syncs automatically
+
+You don't ask for a sync — it just happens. Edit `out/<name>.pptx` in PowerPoint,
+save, and the **next message you send the agent** runs a hook that regenerates
+only the changed slides back into code. It's deck→code only, so it never rebuilds
+or touches the file you just saved. The first time, Claude Code asks you to
+approve the hook (then it's silent). Changed masters, layouts, or the theme?
+Those don't auto-sync — ask the agent to refresh them.
 
 ### Your project
 
@@ -103,14 +112,15 @@ my-deck/
 │   └── base.pptx      # template shell (layouts/theme) the deck is built from
 ├── assets/            # images, video, GIFs, SVGs used by the slides
 ├── out/
-│   └── my-deck.pptx   # the built deck — open and share this one
+│   └── my-deck.pptx   # the built deck — open, edit, and share this one
 ├── backup/            # the last 10 builds, auto-saved on every rebuild
+├── .claude/           # settings.local.json — registers the auto-sync hook
 └── build_deck.py      # generated plumbing
 ```
 
-- **Open and share `out/<name>.pptx`.** That's the finished deck. Prefer to make
-  a quick change in PowerPoint? Edit that file, then ask the agent to sync it
-  back into the code.
+- **Open, edit, and share `out/<name>.pptx`.** That's the finished deck. Edit it
+  in PowerPoint and save, and your changes sync back into code automatically —
+  see [Editing in PowerPoint](#editing-in-powerpoint-syncs-automatically).
 - **Add media** by dropping images, video, or GIFs into `assets/` (or just hand
   the agent the file path) and asking the agent to place them on a slide.
 - **Roll back anytime** — every successful build is saved to `backup/` as
@@ -147,6 +157,7 @@ pptx-to-pypptx/
 ├── scripts/                 # command-line tools (run with uv)
 │   ├── scaffold.py          # create a new project from a target deck
 │   ├── generate_slides.py   # generate/refresh slides/sNN_*.py from a deck
+│   ├── autosync.py          # hook: auto-sync code when the deck is edited in PowerPoint
 │   ├── detect_project.py    # list existing projects
 │   ├── extract_slide.py     # dump/screenshot a single slide
 │   ├── extract_notes.py     # export speaker notes to Markdown
@@ -155,7 +166,7 @@ pptx-to-pypptx/
 │   └── helpers/             # internal modules (imported by the scripts, not run directly)
 └── template/                # files copied into each scaffolded project
     ├── build_deck.py
-    └── lib/                 # design.py + shapes.py helper library
+    └── lib/                 # design.py + shapes.py + roundtrip_state.py helper library
 ```
 
 ## License

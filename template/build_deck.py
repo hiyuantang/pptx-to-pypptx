@@ -11,6 +11,7 @@ from pptx import Presentation
 
 from lib import design as d
 from lib import shapes
+from lib import roundtrip_state
 
 
 BASE = Path(__file__).parent
@@ -148,3 +149,9 @@ MAX_BACKUPS = 10
 for old in backups[:-MAX_BACKUPS]:
     old.unlink()
     print(f"Removed old backup {old}")
+
+# Record that this freshly built deck is now in sync with the code. The autosync
+# hook compares out/<name>.pptx against this marker to tell a human PowerPoint
+# edit apart from our own build, so it never re-syncs code from a deck we built.
+roundtrip_state.stamp(BASE, output_path)
+print(f"Recorded round-trip sync state ({BASE / roundtrip_state.STATE_FILENAME})")
