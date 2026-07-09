@@ -109,12 +109,14 @@ my-deck/
 ├── lib/
 │   ├── design.py      # colors, fonts, spacing — the deck's theme
 │   ├── shapes.py      # drawing engine — the agent's toolbox
+│   ├── roundtrip_state.py  # deck↔code sync bookkeeping (engine — leave alone)
 │   └── base.pptx      # template shell (layouts/theme) the deck is built from
 ├── assets/            # images, video, GIFs, SVGs used by the slides
 ├── out/
 │   └── my-deck.pptx   # the built deck — open, edit, and share this one
 ├── backup/            # the last 10 builds, auto-saved on every rebuild
-└── build_deck.py      # generated plumbing
+├── build_deck.py      # generated plumbing
+└── .roundtrip_state.json   # auto-sync marker: which deck version the code matches
 ```
 
 - **Open, edit, and share `out/<name>.pptx`.** That's the finished deck. Edit it
@@ -128,7 +130,7 @@ my-deck/
 - **Prefer to edit the code yourself?** You don't have to, but you can: the deck
   is real Python. `slides/*.py` (each slide's content) and `lib/design.py` (theme
   colors and fonts) are safe to change by hand. Leave `build_deck.py`,
-  `lib/shapes.py`, and `lib/base.pptx` alone — they're the engine — and don't rename files in
+  `lib/shapes.py`, `lib/roundtrip_state.py`, and `lib/base.pptx` alone — they're the engine — and don't rename files in
   `slides/` (their names set the slide order); ask the agent to add, remove, or
   reorder slides instead.
 - **Your original `.pptx` is never modified** — it stays as a read-only
@@ -162,6 +164,7 @@ pptx-to-pypptx/
 │   ├── extract_notes.py     # export speaker notes to Markdown
 │   ├── sync_slide_numbers.py# reserve/close slide-number slots
 │   ├── list_layouts.py      # list slide layouts in a deck
+│   ├── recapture_base.py    # refresh lib/base.pptx after editing masters/layouts/theme
 │   └── helpers/             # internal modules (imported by the scripts, not run directly)
 └── template/                # files copied into each scaffolded project
     ├── build_deck.py
