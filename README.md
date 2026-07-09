@@ -11,7 +11,7 @@ are plain command-line tools and can be run on their own.
 
 ## Demo
 
-https://github.com/user-attachments/assets/aca8829a-0d3e-4415-ab83-2e816482f1f0
+https://github.com/user-attachments/assets/246ab7ae-b65a-44b0-83a7-6546c5fc0a19
 
 ## Why
 
