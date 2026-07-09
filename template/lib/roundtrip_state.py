@@ -6,10 +6,10 @@ identically. The state is a small JSON marker written next to the project as
 ``.roundtrip_state.json``; it records the built/edited deck's size and a SHA-256
 of every slide's XML.
 
-The autosync hook's rule is simply: if ``out/<name>.pptx`` differs from the
-marker, a human edited it in PowerPoint -> regenerate the changed slides. If it
-matches, do nothing. ``build_deck.py`` re-stamps the marker after every build so
-its own output is never mistaken for a human edit.
+``autosync.py``'s rule is simply: if ``out/<name>.pptx`` differs from the marker,
+a human edited it in PowerPoint -> regenerate the changed slides. If it matches,
+do nothing. ``build_deck.py`` re-stamps the marker after every build so its own
+output is never mistaken for a human edit.
 
 Only per-slide XML is hashed (small), not embedded media, so stamping and
 detection stay cheap even on media-heavy decks. Note: PowerPoint may re-serialize

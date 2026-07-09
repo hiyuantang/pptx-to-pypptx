@@ -12,7 +12,13 @@ Replace `<pptx-to-pypptx-dir>` below with the directory that contains this `SKIL
 ## Rules
 
 - **Target & iteration.** The **initial target** is the `.pptx` the user gave you; it is **read-only** — never overwrite, modify, or move it. After the first build the working target becomes **`out/<filename>.pptx`** (unless the user names a different file). Every successful build is archived to `backup/`, so you can edit the `out/` file freely and roll back.
-- **Run the scripts; don't hand-craft XML.** The scripts handle extraction, codegen, and rebuilding. Your job is to pick the right one and verify its output. Run them as documented — don't pre-emptively edit, move, rename, or delete files.
+- **Run the scripts; don't hand-craft XML.** The scripts handle extraction, codegen, and rebuilding. Your job is to pick the right one and act on its reported status. Run them as documented — don't pre-emptively edit, move, rename, or delete files.
+- **Execute deterministic steps decisively — don't overthink them.** These scripts are deterministic and print an explicit status. Run the right one and act on that line; do **not** re-run "to be sure", re-verify its work, or inspect slides unless the status or the user asks. Trust these success signals and move on:
+  - `autosync.py` → `OK` (nothing to do — proceed) · `SYNCED` (code updated — proceed) · `SKIPPED` (do what the message says).
+  - `build_deck.py` → `Wrote …` followed by `Validator passed …` and `Recorded round-trip sync state …`.
+  - `generate_slides.py` → one `Generated …` line per requested slide.
+  - `sync_slide_numbers.py` → the printed rename/delete/reserve plan (add `--apply` to act).
+  - `detect_project.py` → the JSON `projects` array (exit 1 only means "none found").
 - **Slide-number sync.** Always use `sync_slide_numbers.py` to add, remove, or reorder slides. Never manually rename or delete `slides/s*.py`.
 - **Skill core is off-limits.** Don't edit anything under `<pptx-to-pypptx-dir>/` (templates, scripts, helpers) — including `lib/shapes.py` — unless the user explicitly asks you to fix or upgrade the skill itself. For deck work, only edit generated project files (`slides/*.py`, `lib/design.py`, etc.).
 - **Preserve human files.** `scaffold.py` only overwrites its own generated files (`build_deck.py`, `slides/*.py`, `lib/*.py`, `lib/base.pptx`, `assets/`, `backup/`). Never delete a `.pptx` a human placed in the project root or `out/` unless the user asks.
@@ -42,9 +48,7 @@ my-deck/
 │   └── s02_outline.py
 ├── out/
 │   └── my-deck.pptx
-├── .claude/
-│   └── settings.local.json    # registers the auto-sync hook (added by scaffold.py)
-└── .roundtrip_state.json      # marks the deck version the code is in sync with
+└── .roundtrip_state.json      # marks the deck version the code is in sync with (auto-sync)
 ```
 
 - **One file per slide**, imported by `build_deck.py` in sorted filename order (that order assigns deck numbers).
@@ -56,15 +60,15 @@ my-deck/
 
 | Command | What it does |
 |---|---|
-| `scaffold.py` | Create the project structure, copy assets, capture the base deck (`lib/base.pptx`: masters/layouts/theme, no slides), auto-detect the footer into `lib/design.py` (`FOOTER_TEXT`), and register the **auto-sync hook** in `.claude/settings.local.json`. The built deck is named after `<output-dir>`. Does **not** generate slide code or a `pyproject.toml`. |
-| `autosync.py` | *(runs as a Claude Code hook; you rarely call it directly)* Detect whether `out/<name>.pptx` changed since the last build/sync and, if a human edited it in PowerPoint, regenerate the affected `slides/*.py`. Deck→code only (never rebuilds), mechanical (no TODO review), and never blocks the prompt. See **Live auto-sync** below. |
+| `scaffold.py` | Create the project structure, copy assets, capture the base deck (`lib/base.pptx`: masters/layouts/theme, no slides), and auto-detect the footer into `lib/design.py` (`FOOTER_TEXT`). The built deck is named after `<output-dir>`. Does **not** generate slide code or a `pyproject.toml`. |
+| `autosync.py` | **Run this first** on any deck task to fold in PowerPoint edits (see **Auto-sync** below). Detects whether `out/<name>.pptx` changed since the last build/sync and, if a human edited it, regenerates the affected `slides/*.py`. Deck→code only (never rebuilds), mechanical (no TODO review), auto-detects changed slides, and never errors out — a cheap no-op when nothing changed. |
 | `generate_slides.py` | Fully overwrite selected `slides/sNN_*.py` from the target. `--slides` is required (`4` \| `2-5` \| `3,7,9`); there is no `all`. |
 | `sync_slide_numbers.py` | Reserve slots (`--add`) or close gaps (`--delete`) by renaming `slides/s*.py`. Run **before** `generate_slides.py`; only renames/deletes files. Add `--apply` to act (default is a dry run). |
 | `extract_slide.py` | Dump a slide's shapes — position, size, text, fill, font, z-order, `[HIDDEN]`. `--verbose` for detail, `--screenshot` for a PNG, `--json` for machine output. Accepts `all`. |
 | `extract_notes.py` | Export speaker notes from `slides/*.py` to a Markdown file. |
 | `list_layouts.py` | List layout indices in a deck (for a slide's `LAYOUT` constant). |
 | `detect_project.py` | List existing projects (current dir or one level down) with each one's slides, backups, and output path. Run before a partial update. Returns a `projects` array (`count` 0 → exit 1). |
-| `build_deck.py` | *(inside the project)* Build `slides/` into `out/<name>.pptx`, archiving the prior build to `backup/`. Self-contained and takes no arguments — it uses the bundled `lib/base.pptx` for masters/layouts/theme. On success it stamps `.roundtrip_state.json` so the auto-sync hook never mistakes this build for a human edit. |
+| `build_deck.py` | *(inside the project)* Build `slides/` into `out/<name>.pptx`, archiving the prior build to `backup/`. Self-contained and takes no arguments — it uses the bundled `lib/base.pptx` for masters/layouts/theme. On success it stamps `.roundtrip_state.json` so auto-sync never mistakes this build for a human edit. |
 | `recapture_base.py` | Refresh a project's `lib/base.pptx` from an edited deck (default source: its `out/<name>.pptx`) after you change masters/layouts/theme in PowerPoint. Non-destructive — only rewrites `lib/base.pptx`, never touches `slides/`. |
 
 Canonical invocations:
@@ -82,6 +86,11 @@ uv run python <pptx-to-pypptx-dir>/scripts/generate_slides.py \
 # build_deck.py's relative imports resolve; uv resolves the env from the root.
 uv run --directory <output-dir> python build_deck.py
 
+# Auto-sync code from a PowerPoint edit — run first on any deck task (cheap
+# no-op when nothing changed). Auto-detects and regenerates only changed slides.
+uv run --directory <output-dir> python <pptx-to-pypptx-dir>/scripts/autosync.py \
+  --project-dir <output-dir>
+
 # Recapture lib/base.pptx after editing masters/layouts/theme in PowerPoint
 uv run python <pptx-to-pypptx-dir>/scripts/recapture_base.py --project-dir <output-dir>
 
@@ -98,27 +107,34 @@ uv run python <pptx-to-pypptx-dir>/scripts/extract_slide.py "<target.pptx>" 7 --
 ### New project (initial migration)
 
 1. **Inspect** the current directory with `detect_project.py`. If a project already exists, ask the user whether to use it or scaffold a new folder — multiple projects can coexist, so only scaffold when the target location is confirmed.
-2. **Scaffold** from the target (`scaffold.py`). This also registers the auto-sync hook in `.claude/settings.local.json`.
+2. **Scaffold** from the target (`scaffold.py`).
 3. **Generate** code for **all** slides (`generate_slides.py --slides 1-N`).
 4. **Build once** (`build_deck.py`). Don't build again until there are edits or a regeneration. This first build stamps `.roundtrip_state.json`, the baseline for auto-sync.
 5. **Check for TODOs** in the generated `slides/s*.py`. No `# TODO` → the deck is done. TODOs → implement them, improve the skill, or flag them to the user.
-6. **Tell the user** they can now edit `out/<name>.pptx` in PowerPoint and their changes will sync back to code automatically on their next prompt — after they approve the hook once in Claude Code (effective next session).
+6. **Tell the user** they can now edit `out/<name>.pptx` in PowerPoint; next time they ask you to work on the deck you'll run `autosync.py` and pull those edits back into code automatically (they don't have to say which slides changed).
 
-### Live auto-sync (hook-driven, automatic)
+### Auto-sync a PowerPoint edit (run this first)
 
-After the first build, `scaffold.py` has registered an auto-sync hook, so the common round trip needs no explicit request:
+The user may edit `out/<name>.pptx` in PowerPoint between turns. **At the start of any deck task — before you read or regenerate slide code — run `autosync.py`** so the code reflects those edits. It is a cheap no-op when nothing changed, so run it every time:
 
-1. The user edits `out/<name>.pptx` in PowerPoint and saves.
-2. On their **next prompt** (any prompt), the `UserPromptSubmit`/`SessionStart` hook runs `autosync.py`, which compares the deck against `.roundtrip_state.json`.
-3. If it changed, it regenerates the affected `slides/*.py` (or all slides on an add/delete/reorder) and re-stamps the marker. A one-line summary (e.g. `[autosync] my-deck: regenerated slide(s) 4, 7 …`) is injected into your context.
+```bash
+uv run --directory <output-dir> python <pptx-to-pypptx-dir>/scripts/autosync.py \
+  --project-dir <output-dir>
+```
 
-What auto-sync deliberately does **not** do — handle these yourself when the summary shows a sync happened, or when the user says they changed the theme:
+It compares the deck against `.roundtrip_state.json` and, if the user edited it, regenerates the affected `slides/*.py` (or all slides on an add/delete/reorder) and re-stamps the marker. It **auto-detects which slides changed**, so the user never has to say. It always prints exactly one status line — act on it and continue, don't re-check:
 
-- It never rebuilds the deck, never reviews `# TODO`s, and never runs `recapture_base.py`.
-- If the user changed **masters/layouts/theme** in PowerPoint, the auto-sync only refreshes slide code — run `recapture_base.py` to bake in the new layouts.
-- Requires the user's one-time approval of the hook in Claude Code; it takes effect the session after scaffold.
+- `autosync: <name>: OK — …` → nothing changed; the code already matches the deck. **Proceed.**
+- `autosync: <name>: SYNCED — N slide(s) [..]; code now matches the deck.` → code updated. **Proceed** (no need to inspect the synced slides).
+- `autosync: <name>: SKIPPED — …` → couldn't sync; do what the message says (usually re-scaffold, or the deck is broken).
 
-The steps below are the manual equivalent — run them when auto-sync is disabled, when you want a TODO review, or when the user asks explicitly.
+What auto-sync deliberately does **not** do — handle these yourself:
+
+- It never rebuilds the deck, never reviews `# TODO`s, and never runs `recapture_base.py`. After a sync, check the regenerated files for new `# TODO`s if the user cares.
+- If the user changed **masters/layouts/theme** in PowerPoint, auto-sync only refreshes slide code — run `recapture_base.py` to bake in the new layouts.
+- Pure inspection (`extract_slide.py`) reads the live deck directly, so you don't need auto-sync just to answer "what's on slide N?" — only before editing or building **code**.
+
+> Auto-sync is the fast path for "the human edited the deck." The **Partial update** steps below are the manual equivalent for finer control (choosing slides, TODO review, structural changes).
 
 ### Partial update (human edited a `.pptx`)
 

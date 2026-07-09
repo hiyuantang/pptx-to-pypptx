@@ -28,8 +28,8 @@ deterministically — while keeping the original untouched as a reference.
 - **Build** the deck back into a `.pptx`, archiving the previous output to
   `backup/` on every run.
 - **Sync** code from a manually edited deck by regenerating only the affected
-  slides — automatically, via a hook that runs whenever you save the deck in
-  PowerPoint and then send the agent any message.
+  slides — the agent auto-detects what you changed in PowerPoint, so you never
+  have to say which slides.
 - **Inspect** any slide's shapes/positions/text (and optionally render a PNG)
   without opening PowerPoint.
 
@@ -92,12 +92,12 @@ playbook it follows.
 
 ### Editing in PowerPoint syncs automatically
 
-You don't ask for a sync — it just happens. Edit `out/<name>.pptx` in PowerPoint,
-save, and the **next message you send the agent** runs a hook that regenerates
-only the changed slides back into code. It's deck→code only, so it never rebuilds
-or touches the file you just saved. The first time, Claude Code asks you to
-approve the hook (then it's silent). Changed masters, layouts, or the theme?
-Those don't auto-sync — ask the agent to refresh them.
+Edit `out/<name>.pptx` in PowerPoint, save, and just keep working with the agent
+— you don't ask for a sync or say which slides you changed. Next time you have it
+work on the deck, it detects your edits and regenerates only the changed slides
+back into code. It's deck→code only, so it never rebuilds or overwrites the file
+you just saved. Changed masters, layouts, or the theme? Those don't auto-sync —
+ask the agent to refresh them.
 
 ### Your project
 
@@ -114,7 +114,6 @@ my-deck/
 ├── out/
 │   └── my-deck.pptx   # the built deck — open, edit, and share this one
 ├── backup/            # the last 10 builds, auto-saved on every rebuild
-├── .claude/           # settings.local.json — registers the auto-sync hook
 └── build_deck.py      # generated plumbing
 ```
 
@@ -157,7 +156,7 @@ pptx-to-pypptx/
 ├── scripts/                 # command-line tools (run with uv)
 │   ├── scaffold.py          # create a new project from a target deck
 │   ├── generate_slides.py   # generate/refresh slides/sNN_*.py from a deck
-│   ├── autosync.py          # hook: auto-sync code when the deck is edited in PowerPoint
+│   ├── autosync.py          # auto-sync code when the deck is edited in PowerPoint
 │   ├── detect_project.py    # list existing projects
 │   ├── extract_slide.py     # dump/screenshot a single slide
 │   ├── extract_notes.py     # export speaker notes to Markdown
