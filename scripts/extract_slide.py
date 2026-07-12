@@ -157,8 +157,14 @@ def _render_screenshots(pptx_path: Path, slides: list[int], out_dir: Path, dpi: 
     screenshot_paths = {}
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
+        # ExportHiddenSlides=true keeps hidden slides in the PDF. Without it
+        # LibreOffice drops them, so PDF page N no longer maps to slide N and
+        # every slide after a hidden one is screenshotted off-by-one (and hidden
+        # slides can't be screenshotted at all).
         result = subprocess.run(
-            ["soffice", "--headless", "--convert-to", "pdf", "--outdir", str(tmp), str(pptx_path)],
+            ["soffice", "--headless", "--convert-to",
+             'pdf:impress_pdf_Export:{"ExportHiddenSlides":{"type":"boolean","value":"true"}}',
+             "--outdir", str(tmp), str(pptx_path)],
             capture_output=True, text=True,
         )
         if result.returncode != 0:
