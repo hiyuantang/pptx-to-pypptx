@@ -12,18 +12,44 @@ do nothing. ``build_deck.py`` re-stamps the marker after every build so its own
 output is never mistaken for a human edit.
 
 Only per-slide XML is hashed (small), not embedded media, so stamping and
-detection stay cheap even on media-heavy decks. Note: PowerPoint may re-serialize
-untouched slides on save, in which case detection over-reports and more slides
-are regenerated than strictly necessary -- still correct, just heavier.
+detection stay cheap even on media-heavy decks.
+
+The XML is canonicalized (C14N) before hashing. python-pptx (which ``build_deck``
+uses to write the deck) and PowerPoint (which the human edits with) serialize the
+*same* slide content with different formatting -- quote style, the newline after
+the XML declaration, attribute/namespace ordering. Hashing the raw bytes would
+report every slide as changed the first time a human saves in PowerPoint, even
+untouched ones. Canonicalizing collapses those cosmetic differences so only
+genuinely edited slides are detected.
 """
 
 import hashlib
 import json
 import re
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 STATE_FILENAME = ".roundtrip_state.json"
+
+# Bump when the hashing scheme changes so a stale baseline is recomputed rather
+# than silently compared against incompatible hashes.
+HASH_SCHEME = "c14n-sha256"
+
+
+def _slide_digest(raw: bytes) -> str:
+    """SHA-256 of a slide's canonicalized XML.
+
+    Canonicalization (C14N) normalizes serializer-specific formatting so
+    python-pptx's and PowerPoint's serializations of identical content hash the
+    same. Falls back to the raw bytes if the XML can't be parsed, so a single odd
+    slide over-reports rather than crashing the whole sync.
+    """
+    try:
+        canonical = ET.canonicalize(raw.decode("utf-8"))
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    except Exception:
+        return hashlib.sha256(raw).hexdigest()
 
 
 def _slide_num(name: str) -> int:
@@ -34,16 +60,17 @@ def _slide_num(name: str) -> int:
 
 
 def compute_state(pptx: Path) -> dict:
-    """Return ``{size, slide_count, slides: {slideN.xml: sha256}}`` for a .pptx."""
+    """Return ``{hash, size, slide_count, slides: {slideN.xml: sha256}}`` for a .pptx."""
     pptx = Path(pptx)
     slides = {}
     with zipfile.ZipFile(pptx, "r") as zf:
         for name in zf.namelist():
             if name.startswith("ppt/slides/slide") and name.endswith(".xml"):
                 base = name.rsplit("/", 1)[-1]
-                slides[base] = hashlib.sha256(zf.read(name)).hexdigest()
+                slides[base] = _slide_digest(zf.read(name))
     ordered = {k: slides[k] for k in sorted(slides, key=_slide_num)}
     return {
+        "hash": HASH_SCHEME,
         "size": pptx.stat().st_size,
         "slide_count": len(ordered),
         "slides": ordered,
