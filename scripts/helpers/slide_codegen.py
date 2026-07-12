@@ -37,8 +37,12 @@ def _map_color(value):
                 "fg": _map_color(value.get("fg")),
                 "bg": _map_color(value.get("bg")),
             }
-        inner = _map_color(value.get("color"))
-        return {"color": inner, "alpha": value.get("alpha")}
+        # Solid color dict: map the inner color and keep every other key
+        # (alpha and any luminance/tint/shade transforms) so light tints don't
+        # collapse to their darker base on a round trip.
+        mapped = dict(value)
+        mapped["color"] = _map_color(value.get("color"))
+        return mapped
     if isinstance(value, str) and value.startswith("scheme:"):
         return f"theme_{value.split(':', 1)[1]}"
     return value

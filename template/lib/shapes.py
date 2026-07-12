@@ -136,9 +136,37 @@ def _preset_color_value(color: str):
     return None
 
 
+# OOXML luminance/saturation/tint/shade transforms, in a stable emit order. A
+# light color is typically a darker base plus a lightening transform, so these
+# must be re-emitted or the color reverts to its darker base. See the matching
+# ``_COLOR_MOD_TAGS`` in ``scripts/helpers/slide_xml.py``.
+_COLOR_MOD_TAGS = ("lumMod", "lumOff", "satMod", "satOff", "hueMod", "hueOff", "shade", "tint")
+
+
+def _color_mods(color):
+    """Return the {tag: val} transform map carried on a color dict, or {}."""
+    if not isinstance(color, dict):
+        return {}
+    return {tag: color[tag] for tag in _COLOR_MOD_TAGS if color.get(tag) is not None}
+
+
+def _apply_color_transforms(color_el, mods):
+    """Append luminance/saturation/tint/shade transform children to a color element.
+
+    ``mods`` maps an OOXML transform tag to its raw ``val`` string, e.g.
+    ``{"lumMod": "40000", "lumOff": "60000"}``.
+    """
+    for tag in _COLOR_MOD_TAGS:
+        val = mods.get(tag)
+        if val is not None:
+            etree.SubElement(color_el, qn(f"a:{tag}")).set("val", str(val))
+
+
 def _apply_theme_color(color_format, color):
-    """Apply a theme color (e.g. theme_accent1), preset color, RGB hex, or alpha dict to a ColorFormat object."""
+    """Apply a theme color (e.g. theme_accent1), preset color, RGB hex, or a color
+    dict (with alpha and/or luminance/tint transforms) to a ColorFormat object."""
     alpha = None
+    mods = _color_mods(color)
     if isinstance(color, dict):
         alpha = color.get("alpha")
         color = color.get("color")
@@ -151,18 +179,30 @@ def _apply_theme_color(color_format, color):
         color_format.rgb = rgb(_preset_color_value(color))
     else:
         color_format.rgb = rgb(color)
-    if alpha is not None:
-        # ColorFormat has no direct alpha API; reach into the XML element.
+    if alpha is not None or mods:
+        # ColorFormat has no direct alpha/transform API; reach into the XML element.
         color_el = color_format._color._xClr
-        etree.SubElement(color_el, qn("a:alpha")).set("val", str(int(round(alpha * 100000))))
+        _apply_color_transforms(color_el, mods)
+        if alpha is not None:
+            etree.SubElement(color_el, qn("a:alpha")).set("val", str(int(round(alpha * 100000))))
 
 
 def _apply_color_element(parent, color, shade=None, tint=None):
-    """Append an <a:schemeClr> or <a:srgbClr> child to ``parent``."""
+    """Append an <a:schemeClr> or <a:srgbClr> child to ``parent``.
+
+    Luminance/tint/shade transforms are taken from the color dict when present.
+    The explicit ``shade``/``tint`` params remain for backward compatibility with
+    previously generated code and, when given, take precedence over the dict.
+    """
     alpha = None
+    mods = _color_mods(color)
     if isinstance(color, dict):
         alpha = color.get("alpha")
         color = color.get("color")
+    if shade is not None:
+        mods["shade"] = shade
+    if tint is not None:
+        mods["tint"] = tint
     if _is_theme(color):
         c = etree.SubElement(parent, qn("a:schemeClr"))
         if color.startswith("theme_"):
@@ -173,10 +213,7 @@ def _apply_color_element(parent, color, shade=None, tint=None):
         c = etree.SubElement(parent, qn("a:srgbClr"))
         pc = _preset_color_value(color)
         c.set("val", pc if pc is not None else color.lstrip("#").upper())
-    if shade is not None:
-        etree.SubElement(c, qn("a:shade")).set("val", str(shade))
-    if tint is not None:
-        etree.SubElement(c, qn("a:tint")).set("val", str(tint))
+    _apply_color_transforms(c, mods)
     if alpha is not None:
         etree.SubElement(c, qn("a:alpha")).set("val", str(int(round(alpha * 100000))))
 

@@ -76,6 +76,24 @@ def _parse_alpha(color_el):
     return round(val / 100000, 4)
 
 
+# Luminance / saturation / tint / shade transform children. PowerPoint expresses
+# most *light* colors as a darker base color plus a lightening transform (e.g. a
+# theme accent with lumMod+lumOff, or an srgb base with a tint); dropping these
+# silently reverts the color to its darker base on a round trip. We preserve the
+# raw OOXML ``val`` strings so they can be re-emitted verbatim on rebuild.
+_COLOR_MOD_TAGS = ('lumMod', 'lumOff', 'satMod', 'satOff', 'hueMod', 'hueOff', 'shade', 'tint')
+
+
+def _parse_color_mods(color_el):
+    """Return a dict of luminance/saturation/tint/shade transforms on a color element."""
+    mods = {}
+    for tag in _COLOR_MOD_TAGS:
+        child = color_el.find(f'{{{A}}}{tag}')
+        if child is not None and child.get('val') is not None:
+            mods[tag] = child.get('val')
+    return mods
+
+
 def parse_color(elem):
     """Extract color from a fill/stroke element.
 
@@ -116,8 +134,13 @@ def parse_color(elem):
     if base is None:
         return None
     alpha = _parse_alpha(color_el) if color_el is not None else None
-    if alpha is not None and alpha != 1.0:
-        return {'color': base, 'alpha': alpha}
+    mods = _parse_color_mods(color_el) if color_el is not None else {}
+    if (alpha is not None and alpha != 1.0) or mods:
+        result = {'color': base}
+        if alpha is not None and alpha != 1.0:
+            result['alpha'] = alpha
+        result.update(mods)
+        return result
     return base
 
 
@@ -453,17 +476,11 @@ def parse_style(shape_elem):
         el = style.find(tag)
         if el is not None:
             ref = {'idx': el.get('idx')}
+            # parse_color captures any shade/tint/lum transforms into the color
+            # dict, so no separate extraction is needed here.
             color = parse_color(el)
             if color is not None:
                 ref['color'] = color
-            color_el = el.find(f'{{{A}}}schemeClr') or el.find(f'{{{A}}}srgbClr')
-            if color_el is not None:
-                shade = color_el.find(f'{{{A}}}shade')
-                if shade is not None:
-                    ref['shade'] = shade.get('val')
-                tint = color_el.find(f'{{{A}}}tint')
-                if tint is not None:
-                    ref['tint'] = tint.get('val')
             refs[key] = ref
     return refs
 

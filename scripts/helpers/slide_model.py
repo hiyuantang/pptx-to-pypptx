@@ -13,12 +13,17 @@ EMU_PER_INCH = 914400
 
 
 def _scheme_to_theme(color: Any) -> Any:
-    """Convert 'scheme:accent1' to 'theme_accent1', preserving alpha if present."""
+    """Convert 'scheme:accent1' to 'theme_accent1'.
+
+    Preserves every other key on a color dict (alpha and any luminance/tint/shade
+    transforms) so a light color's lightening modifier survives normalization.
+    """
     if isinstance(color, dict):
-        inner = color.get("color")
+        out = dict(color)
+        inner = out.get("color")
         if isinstance(inner, str) and inner.startswith("scheme:"):
-            return {"color": "theme_" + inner.split(":", 1)[1], "alpha": color.get("alpha")}
-        return color
+            out["color"] = "theme_" + inner.split(":", 1)[1]
+        return out
     if isinstance(color, str) and color.startswith("scheme:"):
         return "theme_" + color.split(":", 1)[1]
     return color
