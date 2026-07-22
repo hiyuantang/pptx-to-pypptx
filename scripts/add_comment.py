@@ -43,17 +43,17 @@ CLAUDE_AUTHOR_INITIALS = "AI"
 _NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 _NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 _NS_P188 = "http://schemas.microsoft.com/office/powerpoint/2018/8/main"
-_NS_AC = "http://schemas.microsoft.com/office/drawing/2013/main/command"
 _NS_PC = "http://schemas.microsoft.com/office/powerpoint/2013/main/command"
-
-# Where the comment pin sits on the slide (EMU). Top-right, clear of most body
-# content, so Claude's notes cluster in a consistent spot.
-_POS_X = 11000000
-_POS_Y = 400000
 
 
 def _guid() -> str:
     return "{" + str(uuid.uuid4()).upper() + "}"
+
+
+def _cid() -> int:
+    # Non-zero change-id for the thread; PowerPoint's real comments use large
+    # unsigned ints here. Derive one from a fresh uuid so it varies per comment.
+    return int(uuid.uuid4().hex[:8], 16) or 1
 
 
 def _timestamp() -> str:
@@ -86,20 +86,30 @@ def _ensure_claude_author(authors_path: Path) -> None:
     authors_path.write_text(xml, encoding="utf-8")
 
 
-def _comment_xml(text: str, author_id: str) -> str:
-    # sldId is a placeholder; inject_comments() rewrites it to the rebuilt slide.
+def _cm_element(text: str, author_id: str) -> str:
+    # A single slide-level (unanchored) comment element. The markers live in
+    # pc:sldMkLst, NOT ac:txMkLst: ac:txMkLst is the *text*-anchor list and the
+    # schema requires it to carry spMk+txMk down to a text range; using it for a
+    # slide-level pin makes PowerPoint offer to "repair" the file (the lenient
+    # OOXML validator does not catch it). The a:/p188: prefixes resolve from the
+    # enclosing cmLst; pc: is declared inline so this fragment can be appended
+    # into an existing part. sldId is a placeholder; inject_comments() rewrites it.
+    return (
+        f'<p188:cm id="{_guid()}" authorId="{author_id}" created="{_timestamp()}">'
+        f'<pc:sldMkLst xmlns:pc="{_NS_PC}"><pc:docMk/>'
+        f'<pc:sldMk cId="{_cid()}" sldId="1"/></pc:sldMkLst>'
+        "<p188:txBody><a:bodyPr/><a:lstStyle/>"
+        f"<a:p><a:r><a:rPr lang=\"en-US\"/><a:t>{escape(text)}</a:t></a:r></a:p>"
+        "</p188:txBody></p188:cm>"
+    )
+
+
+def _comment_file(cm_element: str) -> str:
+    """Wrap a single cm element in a standalone comments part."""
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         f'<p188:cmLst xmlns:a="{_NS_A}" xmlns:r="{_NS_R}" xmlns:p188="{_NS_P188}">'
-        f'<p188:cm id="{_guid()}" authorId="{author_id}" created="{_timestamp()}">'
-        f'<ac:txMkLst xmlns:ac="{_NS_AC}">'
-        f'<pc:docMk xmlns:pc="{_NS_PC}"/>'
-        f'<pc:sldMk xmlns:pc="{_NS_PC}" cId="0" sldId="1"/>'
-        "</ac:txMkLst>"
-        f'<p188:pos x="{_POS_X}" y="{_POS_Y}"/>'
-        "<p188:txBody><a:bodyPr/><a:lstStyle/>"
-        f"<a:p><a:r><a:rPr lang=\"en-US\"/><a:t>{escape(text)}</a:t></a:r></a:p>"
-        "</p188:txBody></p188:cm></p188:cmLst>"
+        f"{cm_element}</p188:cmLst>"
     )
 
 
@@ -126,12 +136,24 @@ def add_comment(project_dir: Path, slide: int, text: str, author_id: str) -> Pat
     authors_path = comments_dir / manifest["authors"]
     _ensure_claude_author(authors_path)
 
+    cm = _cm_element(text, author_id)
+    existing = manifest["slides"].get(str(slide)) or []
+
+    # PowerPoint allows exactly ONE comments part per slide (all threads share a
+    # single cmLst). If the slide already has a part, append into it; creating a
+    # second part on the same slide makes PowerPoint offer to "repair" the file.
+    if existing:
+        target = comments_dir / existing[0]
+        xml = target.read_text(encoding="utf-8")
+        xml = xml.replace("</p188:cmLst>", cm + "</p188:cmLst>", 1)
+        target.write_text(xml, encoding="utf-8")
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        return target
+
     fname = f"claudeComment_{uuid.uuid4().hex[:12]}.xml"
-    (comments_dir / fname).write_text(_comment_xml(text, author_id), encoding="utf-8")
-
-    manifest["slides"].setdefault(str(slide), []).append(fname)
+    (comments_dir / fname).write_text(_comment_file(cm), encoding="utf-8")
+    manifest["slides"][str(slide)] = [fname]
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-
     return comments_dir / fname
 
 
