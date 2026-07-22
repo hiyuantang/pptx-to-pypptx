@@ -23,8 +23,10 @@ Usage:
 
 import argparse
 import contextlib
+import hashlib
 import importlib.util
 import io
+import shutil
 import sys
 from pathlib import Path
 
@@ -72,6 +74,65 @@ def sync_project(project_dir: Path) -> str:
     if out_pptx is None or not out_pptx.exists():
         return f"{name}: OK — deck not built yet; nothing to sync. Proceed."
 
+    # Comments round-trip like slides: mirror the deck's current comments back
+    # into the store first, so a human reply/deletion in PowerPoint sticks and is
+    # not resurrected by the next build. Runs on every path (a human may edit
+    # only comments, leaving slide hashes unchanged).
+    comment_note = _sync_comments(project_dir, out_pptx)
+
+    status = _sync_slides(project_dir, state_mod, out_pptx, name)
+    if comment_note:
+        status = f"{status} ({comment_note})"
+    return status
+
+
+def _comments_signature(comments_dir: Path):
+    """Content hash of the comment store, or ``None`` if there is no store."""
+    if not comments_dir.is_dir():
+        return None
+    h = hashlib.sha256()
+    for path in sorted(comments_dir.rglob("*")):
+        if path.is_file():
+            h.update(path.relative_to(comments_dir).as_posix().encode("utf-8"))
+            h.update(b"\0")
+            h.update(path.read_bytes())
+            h.update(b"\0")
+    return h.hexdigest()
+
+
+def _sync_comments(project_dir: Path, out_pptx: Path) -> str:
+    """Mirror the built deck's comments back into ``comments/`` (deck -> store).
+
+    Makes modern comments behave like normal PowerPoint comments across the round
+    trip: whatever the human left in the deck (replies added, comments deleted)
+    becomes the store, so ``build_deck.py`` re-attaches exactly that and never
+    brings a removed comment back. Returns a short note when the store changed,
+    else "". Never raises — a comment hiccup must not derail the sync.
+    """
+    try:
+        from helpers.comments import extract_comments
+    except Exception:
+        return ""
+    comments_dir = project_dir / "comments"
+    try:
+        before = _comments_signature(comments_dir)
+        # Full re-capture from the deck; rewrites the store when comments exist.
+        found = extract_comments(out_pptx, project_dir)
+        if found == 0 and comments_dir.is_dir():
+            # The deck now has zero comments (e.g. the last one was deleted in
+            # PowerPoint). extract_comments leaves the store untouched when it
+            # finds none, so drop it here or those comments would re-attach.
+            shutil.rmtree(comments_dir)
+        after = _comments_signature(comments_dir)
+    except Exception:
+        return ""
+    if before == after:
+        return ""
+    return "comments mirrored from deck"
+
+
+def _sync_slides(project_dir: Path, state_mod, out_pptx: Path, name: str) -> str:
+    """Regenerate ``slides/*.py`` from the deck when its slides changed."""
     new_state = state_mod.compute_state(out_pptx)
     old_state = state_mod.read_state(project_dir)
 
