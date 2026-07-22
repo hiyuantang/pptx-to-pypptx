@@ -898,6 +898,21 @@ def _code_for_freeform_svg(shape, x, y, w, h, assets_dir, group_var="slide"):
     return f"shapes.add_image({group_var}, {name!r}, {x:.3f}, {y:.3f}, {w:.3f}, {h:.3f})"
 
 
+def _code_for_text_overlay(shape, x, y, w, h):
+    """Emit a transparent ``add_label`` carrying a shape's text at its own box.
+
+    Custom geometry is rasterized to an SVG outline that has no text, so a
+    custom-geom shape that also has text (a callout bubble, a labeled banner,
+    ...) would otherwise lose its words. Overlaying the text as a transparent
+    label at the same box preserves fonts, alignment, and anchor without
+    redrawing the fill/outline the SVG already provides.
+    """
+    kwargs = _common_text_kwargs(shape)
+    text = kwargs.pop("text", "")
+    extra = f", {_format_kwargs(kwargs)}" if kwargs else ""
+    return f"shapes.add_label(slide, {text!r}, {x:.3f}, {y:.3f}, {w:.3f}, {h:.3f}{extra})"
+
+
 def _code_for_any(shape, media_names=None, group_var="slide", assets_dir=None, capture=None):
     shape_type = shape.get("type")
     x, y, w, h = shape["x"], shape["y"], shape["w"], shape["h"]
@@ -910,7 +925,17 @@ def _code_for_any(shape, media_names=None, group_var="slide", assets_dir=None, c
     # Custom geometry that we successfully converted to SVG -> render as image.
     if geom_type == "custom" and geom.get("svg_data"):
         code = _code_for_freeform_svg(shape, x, y, w, h, assets_dir, group_var=group_var)
-        return f"{my_var} = {code}" if my_var else code
+        if my_var:
+            code = f"{my_var} = {code}"
+        # The SVG holds only the vector outline; overlay any text the shape
+        # carries so it survives the round trip (see _code_for_text_overlay).
+        if shape.get("text"):
+            overlay = _code_for_text_overlay(shape, x, y, w, h)
+            if group_var != "slide":
+                overlay = overlay.replace("(slide,", f"({group_var},")
+                overlay = overlay.replace(", slide,", f", {group_var},")
+            code = f"{code}\n{overlay}"
+        return code
 
     if shape_type == "image":
         code = _code_for_image(shape, media_names)
@@ -1024,6 +1049,20 @@ def _set_shape_text(shape, new_text):
     else:
         first["text"] = [{"text": new_text}]
     shape["paragraphs"] = [first]
+
+
+def _is_literal_slide_number(shape, slide_num):
+    """True when a plain shape's only text is this slide's own number.
+
+    Some decks type the page number as a literal digit in a bottom-corner text
+    box instead of using the field / ``sldNum`` placeholder. Treating such a box
+    as the slide number keeps it dynamic across reorders and lets the
+    layout-chrome pass suppress the twin it would otherwise add. Scoped to the
+    bottom footer band so it can't catch content that merely equals the index.
+    """
+    if slide_num is None or shape.get("placeholder"):
+        return False
+    return _shape_text(shape) == str(slide_num) and shape.get("y", 0) >= 6.0
 
 
 def _is_slide_number_text(text):
@@ -1208,7 +1247,7 @@ def generate_slide_code(slide_xml: Path, media_names: dict, title: str, assets_d
         ph = shape.get("placeholder")
         if ph in ("title", "ctrTitle"):
             shape["name"] = "Title"
-        elif ph == "sldNum" or _is_slide_number_text(_shape_text(shape)):
+        elif ph == "sldNum" or _is_slide_number_text(_shape_text(shape)) or _is_literal_slide_number(shape, slide_num):
             # A slide-level slide-number field/placeholder. Emit it as a dynamic
             # SlideNumber (slide_number=n) rather than baking the literal ‹#› field
             # marker as static text; generate_slides.py then suppresses the

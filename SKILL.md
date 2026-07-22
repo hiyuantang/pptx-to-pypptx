@@ -38,9 +38,11 @@ my-deck/
 ├── build_deck.py              # orchestrator: imports slides/ in filename order
 ├── backup/                    # last 10 successful builds for rollback
 ├── assets/                    # media + freeform SVGs extracted from the target
+├── comments/                  # preserved PowerPoint comments (only if the deck has any)
 ├── lib/
 │   ├── design.py              # colors, fonts, layout constants (edit to match deck)
 │   ├── shapes.py              # add_box, add_shape, add_image, add_connector, add_chart, ...
+│   ├── comments.py            # re-attaches preserved comments after each build
 │   ├── roundtrip_state.py     # shared sync-state helper (auto-sync + build_deck)
 │   └── base.pptx              # template shell (masters/layouts/theme, no slides); build input
 ├── slides/
@@ -60,7 +62,7 @@ my-deck/
 
 | Command | What it does |
 |---|---|
-| `scaffold.py` | Create the project structure, copy assets, capture the base deck (`lib/base.pptx`: masters/layouts/theme, no slides), and auto-detect the footer into `lib/design.py` (`FOOTER_TEXT`). The built deck is named after `<output-dir>`. Does **not** generate slide code or a `pyproject.toml`. |
+| `scaffold.py` | Create the project structure, copy assets, capture the base deck (`lib/base.pptx`: masters/layouts/theme, no slides), preserve any PowerPoint comments into `comments/`, and auto-detect the footer into `lib/design.py` (`FOOTER_TEXT`). The built deck is named after `<output-dir>`. Does **not** generate slide code or a `pyproject.toml`. |
 | `autosync.py` | **Run this first** on any deck task to fold in PowerPoint edits (see **Auto-sync** below). Detects whether `out/<name>.pptx` changed since the last build/sync and, if a human edited it, regenerates the affected `slides/*.py`. Deck→code only (never rebuilds), mechanical (no TODO review), auto-detects changed slides, and never errors out — a cheap no-op when nothing changed. |
 | `generate_slides.py` | Fully overwrite selected `slides/sNN_*.py` from the target. `--slides` is required (`4` \| `2-5` \| `3,7,9`); there is no `all`. |
 | `sync_slide_numbers.py` | Reserve slots (`--add`) or close gaps (`--delete`) by renaming `slides/s*.py`. Run **before** `generate_slides.py`; only renames/deletes files. Add `--apply` to act (default is a dry run). |
@@ -202,6 +204,7 @@ The generator and `lib/shapes.py` round-trip all commonly used PowerPoint constr
 - Slide backgrounds (solid and gradient) and speaker notes.
 - Hidden slides — re-emitted as `shapes.set_slide_hidden(slide)`; `extract_slide.py` reports them.
 - Native Office Math (`m:oMath` / `a14:m`) in text runs, preserved as editable equations.
+- Modern threaded comments — captured verbatim at scaffold time and re-attached to the rebuilt slides on every build (author, timestamp, text, and thread replies survive). Comment changes made later in PowerPoint are re-captured on re-scaffold, not by `autosync.py`; shape-level comment anchoring may relax to a slide-level pin since rebuilt shape ids differ.
 
 Anything truly exotic (custom geometry that can't be vectorized, SmartArt, animations, transitions) becomes a `# TODO` comment in the generated slide file.
 

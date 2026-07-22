@@ -17,6 +17,7 @@ import zipfile
 from pathlib import Path
 
 from helpers.assets import sync_assets
+from helpers.comments import extract_comments
 from helpers.pptx_utils import count_slides, write_base_deck
 from helpers.slide_codegen import detect_footer_text
 
@@ -89,6 +90,11 @@ def scaffold_project(target: Path, output_dir: Path) -> None:
     render_template(template_dir / "lib" / "design.py", lib_dir / "design.py", replacements)
     render_template(template_dir / "lib" / "shapes.py", lib_dir / "shapes.py", replacements)
     render_template(template_dir / "lib" / "roundtrip_state.py", lib_dir / "roundtrip_state.py", replacements)
+    render_template(template_dir / "lib" / "comments.py", lib_dir / "comments.py", replacements)
+
+    # Preserve PowerPoint comments (python-pptx can't): copy the comment parts
+    # into comments/ now; build_deck.py re-attaches them after each build.
+    comment_slides = extract_comments(target, output_dir)
 
     # Capture the base deck (masters/layouts/theme, no slides) into lib/ so
     # build_deck.py is self-contained and needs no source .pptx at build time.
@@ -104,6 +110,8 @@ def scaffold_project(target: Path, output_dir: Path) -> None:
     print(f"  target slides: {slide_count}")
     print(f"  assets: {output_dir / 'assets'}")
     print(f"  base deck: {lib_dir / 'base.pptx'} (masters/layouts/theme, no slides)")
+    if comment_slides:
+        print(f"  comments: {output_dir / 'comments'} ({comment_slides} slide(s); re-attached at build)")
 
 
 if __name__ == "__main__":
