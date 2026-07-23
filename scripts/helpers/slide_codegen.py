@@ -895,7 +895,13 @@ def _code_for_freeform_svg(shape, x, y, w, h, assets_dir, group_var="slide"):
     asset_path = assets_dir / name
     if not asset_path.exists():
         asset_path.write_text(svg_data, encoding="utf-8")
-    return f"shapes.add_image({group_var}, {name!r}, {x:.3f}, {y:.3f}, {w:.3f}, {h:.3f})"
+    # Flip is baked into the SVG content above; rotation is applied to the
+    # placed picture about its box center, matching OOXML's flip-then-rotate
+    # order. Without this the freeform lands at 0deg and directional artwork
+    # (e.g. arrows) points the wrong way.
+    rotation = _rotation_deg(shape)
+    extra = f", rotation={rotation}" if rotation is not None else ""
+    return f"shapes.add_image({group_var}, {name!r}, {x:.3f}, {y:.3f}, {w:.3f}, {h:.3f}{extra})"
 
 
 def _code_for_text_overlay(shape, x, y, w, h):

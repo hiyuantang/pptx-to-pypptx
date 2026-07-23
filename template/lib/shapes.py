@@ -2044,6 +2044,7 @@ def add_image(
     h: float,
     crop: dict | None = None,
     lum: dict | None = None,
+    rotation: float = 0,
 ) -> "Picture":
     """Add an image from the assets directory.
 
@@ -2067,6 +2068,10 @@ def add_image(
             ``pic.brightness`` and ``pic.contrast``, but these attributes are
             not available on python-pptx ``Picture`` objects in this
             environment, so the values are silently ignored.
+        rotation: Clockwise rotation in degrees, applied about the picture's
+            box center (matching OOXML ``xfrm`` rotation). Used to reproduce
+            rotated freeform/custom-geometry artwork whose flip is baked into
+            the SVG content, so directional shapes (arrows) keep their heading.
 
     Returns:
         The created ``Picture`` shape.
@@ -2122,6 +2127,9 @@ def add_image(
             cNvPr.set("descr", Path(name).stem)
     except Exception:
         pass
+
+    if rotation:
+        pic.rotation = rotation
 
     if crop:
         try:

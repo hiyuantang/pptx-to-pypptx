@@ -368,6 +368,35 @@ def _svg_path_commands(path_elem, path_w, path_h):
     return " ".join(parts)
 
 
+# Preset dash -> dash/gap pattern in multiples of the stroke width, matching
+# PowerPoint's rendering. Consumed by _svg_dasharray to build stroke-dasharray.
+_DASH_PATTERNS = {
+    'dot': [1, 3],
+    'sysDot': [1, 1],
+    'dash': [4, 3],
+    'sysDash': [3, 1],
+    'lgDash': [8, 3],
+    'dashDot': [4, 3, 1, 3],
+    'sysDashDot': [3, 1, 1, 1],
+    'lgDashDot': [8, 3, 1, 3],
+    'lgDashDotDot': [8, 3, 1, 3, 1, 3],
+    'sysDashDotDot': [3, 1, 1, 1, 1, 1],
+}
+
+
+def _svg_dasharray(dash_val, stroke_units):
+    """Return an SVG stroke-dasharray for a preset dash, or None.
+
+    ``stroke_units`` is the stroke width already expressed in the path
+    coordinate space; OOXML dash lengths are relative to line width, so the
+    pattern is scaled by it.
+    """
+    pattern = _DASH_PATTERNS.get(dash_val)
+    if not pattern or not stroke_units:
+        return None
+    return " ".join(f"{seg * stroke_units:.2f}" for seg in pattern)
+
+
 def _custgeom_to_svg(spPr):
     """Convert a <a:custGeom> shape to a standalone SVG string.
 
@@ -391,11 +420,15 @@ def _custgeom_to_svg(spPr):
     stroke_color = _hex_color(line)
     stroke = 'stroke="none"'
     stroke_width = ''
+    stroke_dash = ''
     if stroke_color and line:
         stroke = f'stroke="{stroke_color}"'
-        # Convert line width from EMUs to path-space units.
-        w_emu = int(line.get('w', 0)) if isinstance(line, dict) else 0
-        if w_emu:
+        # parse_line() stores width in POINTS (w_emu / EMU_PER_POINT); convert
+        # back to EMU before scaling into the EMU-based path space, or the
+        # stroke comes out ~EMU_PER_POINT times too thin and vanishes on raster.
+        w_pt = line.get('w') if isinstance(line, dict) else 0
+        sw_units = 0
+        if w_pt:
             xfrm = spPr.find(f'{{{A}}}xfrm')
             if xfrm is not None:
                 ext = xfrm.find(f'{{{A}}}ext')
@@ -405,7 +438,14 @@ def _custgeom_to_svg(spPr):
                     first_path = pathLst.find(f'{{{A}}}path')
                     pw = int(first_path.get('w', 1)) if first_path is not None else 1
                     if cx and pw:
-                        stroke_width = f' stroke-width="{w_emu * pw / cx:.2f}"'
+                        sw_units = w_pt * EMU_PER_POINT * pw / cx
+                        stroke_width = f' stroke-width="{sw_units:.2f}"'
+        # Preserve the dashed/dotted border (otherwise it renders solid).
+        dasharray = _svg_dasharray(
+            line.get('dash') if isinstance(line, dict) else None, sw_units
+        )
+        if dasharray:
+            stroke_dash = f' stroke-dasharray="{dasharray}"'
 
     # Build path elements.
     paths = []
@@ -422,7 +462,7 @@ def _custgeom_to_svg(spPr):
 
     path_elems = []
     for pw, ph, d in paths:
-        path_elems.append(f'<path d="{d}" {fill} {stroke}{stroke_width}/>')
+        path_elems.append(f'<path d="{d}" {fill} {stroke}{stroke_width}{stroke_dash}/>')
 
     svg = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
