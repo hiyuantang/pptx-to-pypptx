@@ -196,7 +196,8 @@ The generator and `lib/shapes.py` round-trip all commonly used PowerPoint constr
 - Solid, theme, gradient, and pattern fills; no-fill; and style references (`lnRef`/`fillRef`/`effectRef`).
 - Rich text: multiple paragraphs and runs; font, size, color, bold/italic/underline/strike, super/subscript, highlight, hyperlinks; paragraph alignment, indentation, bullets (char and auto-numbered), and spacing.
 - Shape effects — shadow, glow, reflection, soft edge.
-- Images with cropping and luminance adjustments. Native: PNG/JPEG/GIF/BMP/TIFF/WMF/EMF. SVG is rasterized; WebP/HEIC/HEIF convert via Pillow (`pillow-heif` for HEIC); WDP/JPEG-XR needs ImageMagick. Freeform/custom shapes are exported as SVG assets and placed via `add_image`, so arbitrary vector artwork survives.
+- Images with cropping and luminance adjustments. Native: PNG/JPEG/GIF/BMP/TIFF/WMF/EMF (EMF is embedded as `image/x-emf`, not the `image/x-wmf` Pillow would infer, so it renders instead of showing a blank box). SVG is rasterized; WebP/HEIC/HEIF convert via Pillow (`pillow-heif` for HEIC); WDP/JPEG-XR needs ImageMagick. Freeform/custom shapes are exported as SVG assets and placed via `add_image`, so arbitrary vector artwork survives.
+- "Sketch"/hand-drawn line style (`ask:lineSketchStyleProps`): PowerPoint rewrites the shape's geometry into a wavy `custGeom` but stashes the real preset in the sketch extension. That preset is recovered so the shape round-trips as a crisp native preset (rect, arrow, …) with its dashed line intact, rather than a rasterized freeform with broken edges. The decorative hand-drawn wobble is dropped.
 - Tables with per-cell fills, borders, alignment, margins, row/column sizes, and merged cells.
 - True group shapes with group-relative child positioning.
 - Charts (column, bar, line, pie, area, …).

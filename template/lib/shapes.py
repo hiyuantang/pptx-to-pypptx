@@ -23,7 +23,8 @@ from pptx.oxml.ns import qn
 from . import design as d
 
 # Image formats that python-pptx/Pillow can hand to add_picture() without
-# conversion. EMF is accepted by Pillow and stored as WMF.
+# conversion. EMF is embedded as image/x-emf via _install_emf_image_support()
+# (Pillow otherwise reports it as WMF, which PowerPoint renders as a blank box).
 _NATIVE_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".wmf", ".emf"}
 
 
@@ -34,6 +35,43 @@ MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
 A14_NS = "http://schemas.microsoft.com/office/drawing/2010/main"
 P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+
+def _install_emf_image_support() -> None:
+    """Teach python-pptx to embed EMF metafiles as ``image/x-emf``.
+
+    python-pptx derives an image's part extension and content type from the
+    format Pillow reports, and Pillow reports *both* WMF and EMF metafiles as
+    ``"WMF"``. So an EMF is embedded as an ``image/x-wmf`` part named
+    ``imageN.wmf`` -- PowerPoint then tries to parse the EMF bytes as WMF and
+    renders nothing (a blank/black box). EMF files carry the ``" EMF"``
+    signature at byte offset 40, so detect that and return the correct ``emf``
+    extension (``image_content_types`` already maps ``emf`` -> ``image/x-emf``).
+    """
+    try:
+        from pptx.parts.image import Image as _Image
+    except Exception:
+        return
+    # Canonical extensions python-pptx assigns per Pillow format (mirrors its own
+    # table); EMF is handled ahead of this by signature since Pillow calls it WMF.
+    _ext_map = {"BMP": "bmp", "GIF": "gif", "JPEG": "jpg",
+                "PNG": "png", "TIFF": "tiff", "WMF": "wmf"}
+
+    def _ext(self):
+        blob = self._blob
+        if len(blob) >= 44 and blob[40:44] == b" EMF":
+            return "emf"
+        fmt = self._format
+        if fmt not in _ext_map:
+            raise ValueError("unsupported image format, got %r" % (fmt,))
+        return _ext_map[fmt]
+
+    # content_type reads self.ext (image_content_types[self.ext]), so patching
+    # ext alone is enough to also correct the content type.
+    _Image.ext = property(_ext)
+
+
+_install_emf_image_support()
 
 
 def set_assets_dir(path: Path | str) -> None:

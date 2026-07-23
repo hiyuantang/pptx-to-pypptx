@@ -474,23 +474,57 @@ def _custgeom_to_svg(spPr):
     return svg
 
 
+# Extension URI for PowerPoint's "sketched"/hand-drawn line style
+# (ask:lineSketchStyleProps, office/drawing/2018/sketchyshapes).
+_SKETCH_EXT_URI = "{C807C97D-BFC1-408E-A445-0C87EB9F89A2}"
+
+
+def _prstGeom_to_dict(prstGeom):
+    """Build a geometry dict from an <a:prstGeom> element."""
+    geom = {'type': prstGeom.get('prst')}
+    adjustments = []
+    avLst = prstGeom.find(f'{{{A}}}avLst')
+    if avLst is not None:
+        for gd in avLst.findall(f'{{{A}}}gd'):
+            adjustments.append((gd.get('name'), gd.get('fmla')))
+    if adjustments:
+        geom['adj'] = adjustments
+    return geom
+
+
+def _sketch_preset_geometry(spPr):
+    """Recover a shape's real preset geometry when a "sketch" line style is on.
+
+    PowerPoint's hand-drawn line style (ask:lineSketchStyleProps) replaces the
+    live geometry with a wavy <a:custGeom> bezier path, but preserves the
+    original <a:prstGeom> inside the sketch extension (which sits in the line's
+    extLst). Returning that preset lets the shape round-trip as a crisp native
+    shape (rect, arrow, ...) instead of a rasterized freeform whose dashed edges
+    come out broken. The decorative hand-drawn wobble is intentionally dropped.
+    """
+    for ext in spPr.iter(f'{{{A}}}ext'):
+        if ext.get('uri') != _SKETCH_EXT_URI:
+            continue
+        for prstGeom in ext.iter(f'{{{A}}}prstGeom'):
+            return _prstGeom_to_dict(prstGeom)
+    return None
+
+
 def parse_geometry(spPr):
     """Parse the <a:prstGeom> or <a:custGeom> element of a shape."""
     if spPr is None:
         return None
     prstGeom = spPr.find(f'{{{A}}}prstGeom')
     if prstGeom is not None:
-        geom = {'type': prstGeom.get('prst')}
-        adjustments = []
-        avLst = prstGeom.find(f'{{{A}}}avLst')
-        if avLst is not None:
-            for gd in avLst.findall(f'{{{A}}}gd'):
-                adjustments.append((gd.get('name'), gd.get('fmla')))
-        if adjustments:
-            geom['adj'] = adjustments
-        return geom
+        return _prstGeom_to_dict(prstGeom)
     custGeom = spPr.find(f'{{{A}}}custGeom')
     if custGeom is not None:
+        # A sketch/hand-drawn line turns the real preset into a wavy custGeom;
+        # prefer the preset stashed in the sketch extension so the shape stays a
+        # crisp native preset instead of a rasterized (and broken) freeform.
+        sketch_geom = _sketch_preset_geometry(spPr)
+        if sketch_geom is not None:
+            return sketch_geom
         svg_data = _custgeom_to_svg(spPr)
         geom = {'type': 'custom'}
         if svg_data:
