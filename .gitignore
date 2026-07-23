@@ -30,6 +30,7 @@ shots/
 
 # Generated python-pptx test projects (derived from user-supplied decks, not source)
 /session1/
+/session3/
 
 # Editor / IDE
 .idea/
