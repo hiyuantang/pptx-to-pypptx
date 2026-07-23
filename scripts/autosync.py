@@ -26,9 +26,19 @@ import contextlib
 import hashlib
 import importlib.util
 import io
+import json
+import re
 import shutil
 import sys
+import uuid
+import zipfile
 from pathlib import Path
+
+# Comments added by add_comment.py that are not yet in the built deck.
+_PENDING_FILE = ".pending.json"
+_NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main"
+_NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_NS_P188 = "http://schemas.microsoft.com/office/powerpoint/2018/8/main"
 
 _SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPTS))
@@ -114,8 +124,22 @@ def _sync_comments(project_dir: Path, out_pptx: Path) -> str:
     except Exception:
         return ""
     comments_dir = project_dir / "comments"
+    carried = []
     try:
         before = _comments_signature(comments_dir)
+
+        # A comment written by add_comment.py but not yet built exists ONLY in
+        # the store. A blind mirror cannot tell that apart from a comment the
+        # human deleted in PowerPoint, so carry such comments across the mirror
+        # (and drop ids that already reached the deck -- those are built now).
+        deck_ids = _deck_cm_ids(out_pptx)
+        pending_ids = [i for i in _read_pending(comments_dir) if i not in deck_ids]
+        carried = _collect_pending(comments_dir, set(pending_ids))
+        authors_path = comments_dir / "authors.xml"
+        authors_xml = (
+            authors_path.read_text(encoding="utf-8") if authors_path.is_file() else None
+        )
+
         # Full re-capture from the deck; rewrites the store when comments exist.
         found = extract_comments(out_pptx, project_dir)
         if found == 0 and comments_dir.is_dir():
@@ -123,12 +147,121 @@ def _sync_comments(project_dir: Path, out_pptx: Path) -> str:
             # PowerPoint). extract_comments leaves the store untouched when it
             # finds none, so drop it here or those comments would re-attach.
             shutil.rmtree(comments_dir)
+
+        _reinject_pending(comments_dir, carried, authors_xml)
+
+        pending_path = comments_dir / _PENDING_FILE
+        if pending_ids and comments_dir.is_dir():
+            pending_path.write_text(
+                json.dumps({"ids": pending_ids}, indent=2), encoding="utf-8"
+            )
+        elif pending_path.is_file():
+            pending_path.unlink()
+
         after = _comments_signature(comments_dir)
     except Exception:
         return ""
     if before == after:
         return ""
-    return "comments mirrored from deck"
+    note = "comments mirrored from deck"
+    if carried:
+        note += f"; {len(carried)} unbuilt comment(s) preserved"
+    return note
+
+
+def _cm_ids(xml: str) -> set:
+    return set(re.findall(r'<p188:cm\b[^>]*?\bid="([^"]+)"', xml))
+
+
+def _deck_cm_ids(out_pptx: Path) -> set:
+    """Comment ids present in the built deck."""
+    ids: set = set()
+    try:
+        with zipfile.ZipFile(out_pptx) as zf:
+            for name in zf.namelist():
+                if re.match(r"ppt/comments/.*\.xml$", name):
+                    ids |= _cm_ids(zf.read(name).decode("utf-8"))
+    except Exception:
+        pass
+    return ids
+
+
+def _read_pending(comments_dir: Path) -> list:
+    path = comments_dir / _PENDING_FILE
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return [i for i in data.get("ids", []) if isinstance(i, str)]
+    except Exception:
+        return []
+
+
+def _collect_pending(comments_dir: Path, ids: set) -> list:
+    """``[(slide_key, cm_xml)]`` for the given comment ids, read from the store."""
+    found = []
+    manifest_path = comments_dir / "manifest.json"
+    if not ids or not manifest_path.is_file():
+        return found
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception:
+        return found
+    for slide, files in (manifest.get("slides") or {}).items():
+        for fname in files:
+            path = comments_dir / fname
+            if not path.is_file():
+                continue
+            xml = path.read_text(encoding="utf-8")
+            for match in re.finditer(r"<p188:cm\b.*?</p188:cm>", xml, re.S):
+                frag = match.group(0)
+                cm_id = re.search(r'\bid="([^"]+)"', frag)
+                if cm_id and cm_id.group(1) in ids:
+                    found.append((str(slide), frag))
+    return found
+
+
+def _reinject_pending(comments_dir: Path, pending: list, authors_xml) -> None:
+    """Put carried-over comments back after the mirror, one part per slide."""
+    if not pending:
+        return
+    comments_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = comments_dir / "manifest.json"
+    try:
+        manifest = (
+            json.loads(manifest_path.read_text(encoding="utf-8"))
+            if manifest_path.is_file()
+            else {}
+        )
+    except Exception:
+        manifest = {}
+    manifest.setdefault("slides", {})
+    manifest.setdefault("authors", "authors.xml")
+
+    # The mirror may have removed authors.xml (deck had no comments); the carried
+    # comments still reference their author, so restore it.
+    authors_path = comments_dir / manifest["authors"]
+    if authors_xml and not authors_path.is_file():
+        authors_path.write_text(authors_xml, encoding="utf-8")
+
+    for slide, frag in pending:
+        files = manifest["slides"].get(slide) or []
+        target = comments_dir / files[0] if files else None
+        if target is not None and target.is_file():
+            xml = target.read_text(encoding="utf-8")
+            target.write_text(
+                xml.replace("</p188:cmLst>", frag + "</p188:cmLst>", 1), encoding="utf-8"
+            )
+            continue
+        fname = f"claudeComment_{uuid.uuid4().hex[:12]}.xml"
+        (comments_dir / fname).write_text(
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            f'<p188:cmLst xmlns:a="{_NS_A}" xmlns:r="{_NS_R}" xmlns:p188="{_NS_P188}">'
+            f"{frag}</p188:cmLst>",
+            encoding="utf-8",
+        )
+        manifest["slides"][slide] = [fname]
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
 
 def _sync_slides(project_dir: Path, state_mod, out_pptx: Path, name: str) -> str:

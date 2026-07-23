@@ -39,6 +39,9 @@ CLAUDE_AUTHOR_ID = "{0C1A0DE0-0000-4000-8000-000000000001}"
 CLAUDE_AUTHOR_NAME = "Claude"
 CLAUDE_AUTHOR_INITIALS = "AI"
 
+# Records comments that are in the store but not yet in the built deck.
+PENDING_FILE = ".pending.json"
+
 # Namespaces used by modern (2018) PowerPoint comments.
 _NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main"
 _NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -86,7 +89,26 @@ def _ensure_claude_author(authors_path: Path) -> None:
     authors_path.write_text(xml, encoding="utf-8")
 
 
-def _cm_element(text: str, author_id: str) -> str:
+def _record_pending(comments_dir: Path, cm_id: str) -> None:
+    """Note a comment that exists in the store but not yet in the built deck.
+
+    ``autosync.py`` mirrors the deck back into the store; without this record it
+    could not tell a not-yet-built addition from a comment the human deleted in
+    PowerPoint, and would silently destroy the former. Entries are dropped by
+    autosync once the comment shows up in the deck (i.e. after a build).
+    """
+    path = comments_dir / PENDING_FILE
+    try:
+        data = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except Exception:
+        data = {}
+    ids = [i for i in data.get("ids", []) if isinstance(i, str)]
+    if cm_id not in ids:
+        ids.append(cm_id)
+    path.write_text(json.dumps({"ids": ids}, indent=2), encoding="utf-8")
+
+
+def _cm_element(text: str, author_id: str, cm_id: str) -> str:
     # A single slide-level (unanchored) comment element. The markers live in
     # pc:sldMkLst, NOT ac:txMkLst: ac:txMkLst is the *text*-anchor list and the
     # schema requires it to carry spMk+txMk down to a text range; using it for a
@@ -95,7 +117,7 @@ def _cm_element(text: str, author_id: str) -> str:
     # enclosing cmLst; pc: is declared inline so this fragment can be appended
     # into an existing part. sldId is a placeholder; inject_comments() rewrites it.
     return (
-        f'<p188:cm id="{_guid()}" authorId="{author_id}" created="{_timestamp()}">'
+        f'<p188:cm id="{cm_id}" authorId="{author_id}" created="{_timestamp()}">'
         f'<pc:sldMkLst xmlns:pc="{_NS_PC}"><pc:docMk/>'
         f'<pc:sldMk cId="{_cid()}" sldId="1"/></pc:sldMkLst>'
         "<p188:txBody><a:bodyPr/><a:lstStyle/>"
@@ -136,7 +158,8 @@ def add_comment(project_dir: Path, slide: int, text: str, author_id: str) -> Pat
     authors_path = comments_dir / manifest["authors"]
     _ensure_claude_author(authors_path)
 
-    cm = _cm_element(text, author_id)
+    cm_id = _guid()
+    cm = _cm_element(text, author_id, cm_id)
     existing = manifest["slides"].get(str(slide)) or []
 
     # PowerPoint allows exactly ONE comments part per slide (all threads share a
@@ -148,12 +171,14 @@ def add_comment(project_dir: Path, slide: int, text: str, author_id: str) -> Pat
         xml = xml.replace("</p188:cmLst>", cm + "</p188:cmLst>", 1)
         target.write_text(xml, encoding="utf-8")
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        _record_pending(comments_dir, cm_id)
         return target
 
     fname = f"claudeComment_{uuid.uuid4().hex[:12]}.xml"
     (comments_dir / fname).write_text(_comment_file(cm), encoding="utf-8")
     manifest["slides"][str(slide)] = [fname]
     manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    _record_pending(comments_dir, cm_id)
     return comments_dir / fname
 
 
