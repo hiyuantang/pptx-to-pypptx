@@ -2107,10 +2107,11 @@ def add_image(
         crop: Optional crop dict with keys ``'l'``, ``'r'``, ``'t'``, ``'b'``.
             Values are hundred-thousandths of the image dimension (e.g.
             ``100000`` crops the full edge).
-        lum: Reserved/non-functional. The implementation attempts to set
-            ``pic.brightness`` and ``pic.contrast``, but these attributes are
-            not available on python-pptx ``Picture`` objects in this
-            environment, so the values are silently ignored.
+        lum: Picture luminance adjustment, e.g. ``{'bright': '70000',
+            'contrast': '-70000'}`` (OOXML thousandths of a percent). Emitted as
+            an ``<a:lum>`` child of the blip so brightness/contrast survive the
+            round trip -- important for dark metafile artwork that would
+            otherwise be invisible on a dark slide.
         rotation: Clockwise rotation in degrees, applied about the picture's
             box center (matching OOXML ``xfrm`` rotation). Used to reproduce
             rotated freeform/custom-geometry artwork whose flip is baked into
@@ -2187,11 +2188,22 @@ def add_image(
         except (ValueError, TypeError, AttributeError):
             pass
     if lum:
+        # Apply picture brightness/contrast as <a:lum> inside <a:blip>.
+        # python-pptx exposes no Picture.brightness/contrast, so emit the element
+        # directly; without it dark metafile art (e.g. a black matrix graphic) is
+        # invisible on a dark slide.
         try:
-            if lum.get("bright") is not None:
-                pic.brightness = int(lum["bright"]) / 1000
-            if lum.get("contrast") is not None:
-                pic.contrast = int(lum["contrast"]) / 1000
+            blip = pic._element.find(f".//{qn('a:blip')}")
+            if blip is not None and (
+                lum.get("bright") is not None or lum.get("contrast") is not None
+            ):
+                lum_el = blip.makeelement(qn("a:lum"), {})
+                if lum.get("bright") is not None:
+                    lum_el.set("bright", str(lum["bright"]))
+                if lum.get("contrast") is not None:
+                    lum_el.set("contrast", str(lum["contrast"]))
+                # <a:lum> is the first blip child, ahead of any other effects.
+                blip.insert(0, lum_el)
         except Exception:
             pass
     return pic
