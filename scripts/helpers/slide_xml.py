@@ -1030,7 +1030,12 @@ def _add_text(elem_dict, txBody, slide_rels=None,
         paragraphs = []
     elem_dict['paragraphs'] = paragraphs
     elem_dict['text'] = '\n'.join(p['text'] for p in paragraphs)
-    if elem_dict['text']:
+    # Capture body properties whenever there is real content, including
+    # math-only boxes whose text is carried in run math_xml (so elem_dict
+    # ['text'] is ''). Keying off `text` alone dropped their margins/wrap/
+    # autofit, so an Office-Math equation lost its zero insets and spAutoFit
+    # and wrapped to a second line in a box sized for one.
+    if paragraphs:
         margins, anchor, wrap, autofit = _parse_bodyPr(txBody)
         if margins:
             elem_dict['margins'] = margins

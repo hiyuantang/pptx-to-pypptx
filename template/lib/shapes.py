@@ -365,10 +365,15 @@ def _apply_adjustments(shape, adjustments):
 def _apply_rotation_and_flip(shape, rotation, flip_h, flip_v):
     if rotation:
         shape.rotation = rotation
-    if flip_h:
-        shape.flip_horizontal = True
-    if flip_v:
-        shape.flip_vertical = True
+    # python-pptx exposes no flip_horizontal/flip_vertical setter, so assigning
+    # those attributes is a silent no-op that drops the flip. Write the xfrm
+    # flip attributes directly (same approach as add_connector).
+    if flip_h or flip_v:
+        xfrm = shape._element.spPr.get_or_add_xfrm()
+        if flip_h:
+            xfrm.set("flipH", "1")
+        if flip_v:
+            xfrm.set("flipV", "1")
 
 
 def _remove_autofit(tf):
