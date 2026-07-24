@@ -1702,16 +1702,54 @@ def parse_graphicFrame(gf, transform, group_path, slide_rels=None):
 # Recursive extraction
 # ---------------------------------------------------------------------------
 
+_R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+
+
+def _needs_raw_passthrough(el):
+    """True when a top-level shape should be preserved as verbatim OOXML.
+
+    The generated python-pptx code cannot faithfully reproduce 3D transforms
+    (``a:scene3d``/``a:sp3d``), sketched outlines (``ask:lineSketchStyleProps``),
+    or arbitrary custom geometry (rotation, fills and effects are lost when it
+    is rasterized to an SVG image). Shapes using those features are emitted as
+    raw XML and re-injected unchanged at build time — unless the subtree holds
+    any relationship reference (r:embed, r:id, ...), which would dangle in the
+    rebuilt package; those keep the regular (degraded) code path.
+    """
+    has_feature = False
+    for node in el.iter():
+        tag = node.tag
+        if (tag == f'{{{A}}}custGeom' or tag == f'{{{A}}}scene3d'
+                or tag == f'{{{A}}}sp3d' or tag.endswith('}lineSketchStyleProps')):
+            has_feature = True
+        for attr in node.attrib:
+            if attr.startswith('{' + _R_NS + '}'):
+                return False
+    return has_feature
+
+
 def _extract_container(container, transform, group_path, slide_rels=None, image_rels=None, z_counter=None,
                        layout_ph_map=None, master_ph_map=None,
                        layout_text_map=None, master_text_map=None, master_tx_styles=None,
-                       layout_bodyPr_map=None, master_bodyPr_map=None):
+                       layout_bodyPr_map=None, master_bodyPr_map=None, top_level=False):
     """Recursively extract elements from a spTree or grpSp container."""
     if z_counter is None:
         z_counter = [0]
     elements = []
     for child in container:
         tag = child.tag
+        if (top_level
+                and tag in (f'{{{P}}}sp', f'{{{P}}}grpSp', f'{{{P}}}cxnSp')
+                and _needs_raw_passthrough(child)):
+            elements.append({
+                'type': 'raw',
+                'name': get_name(child),
+                'id': get_id(child),
+                'raw_xml': ET.tostring(child, encoding='unicode'),
+                'z': z_counter[0],
+            })
+            z_counter[0] += 1
+            continue
         if tag == f'{{{P}}}sp':
             e = parse_sp(child, transform, group_path, slide_rels, layout_ph_map, master_ph_map,
                          layout_text_map, master_text_map, master_tx_styles,
@@ -1775,7 +1813,7 @@ def _extract_container(container, transform, group_path, slide_rels=None, image_
                     choice, transform, group_path, slide_rels, image_rels, z_counter,
                     layout_ph_map, master_ph_map,
                     layout_text_map, master_text_map, master_tx_styles,
-                    layout_bodyPr_map, master_bodyPr_map
+                    layout_bodyPr_map, master_bodyPr_map, top_level=top_level
                 ))
     return elements
 
@@ -1802,7 +1840,8 @@ def extract_elements(xml_path):
                               layout_ph_map=layout_ph_map, master_ph_map=master_ph_map,
                               layout_text_map=layout_text_map, master_text_map=master_text_map,
                               master_tx_styles=master_tx_styles,
-                              layout_bodyPr_map=layout_bodyPr_map, master_bodyPr_map=master_bodyPr_map)
+                              layout_bodyPr_map=layout_bodyPr_map, master_bodyPr_map=master_bodyPr_map,
+                              top_level=True)
 
 
 def read_slide_shapes(slide_xml_path: Path) -> list[dict]:

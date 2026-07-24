@@ -915,6 +915,13 @@ def _code_for_text_overlay(shape, x, y, w, h):
 
 def _code_for_any(shape, media_names=None, group_var="slide", assets_dir=None, capture=None):
     shape_type = shape.get("type")
+
+    # Verbatim OOXML passthrough for shapes whose fidelity generated code
+    # cannot reproduce (3D, sketched outlines, complex custom geometry). The
+    # XML is re-injected unchanged at build time, so nothing is lost.
+    if shape_type == "raw":
+        return f"shapes.add_raw_xml({group_var}, {shape['raw_xml']!r})"
+
     x, y, w, h = shape["x"], shape["y"], shape["w"], shape["h"]
     geom = shape.get("geom", {})
     geom_type = geom.get("type")
