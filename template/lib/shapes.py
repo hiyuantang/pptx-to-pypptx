@@ -2635,8 +2635,18 @@ def set_group_bounds(
     y: float,
     w: float,
     h: float,
+    *,
+    rotation: float = 0.0,
+    flip_h: bool = False,
+    flip_v: bool = False,
 ) -> None:
     """Set the outer position and size of a group after children are added.
+
+    ``x``/``y``/``w``/``h`` describe the group's *unrotated* bounding box;
+    ``rotation`` (degrees, clockwise) and the flip flags are then applied to the
+    group as a whole. Children are authored in the group's unrotated frame, so a
+    rotated/flipped group carries them as a unit — matching OOXML group
+    semantics and reproducing e.g. a 270 deg vector column.
 
     Args:
         group: A python-pptx ``GroupShape``.
@@ -2644,13 +2654,23 @@ def set_group_bounds(
         y: Top position in inches.
         w: Width in inches.
         h: Height in inches.
+        rotation: Group rotation in degrees (clockwise). ``0`` clears any.
+        flip_h: Mirror the group horizontally.
+        flip_v: Mirror the group vertically.
 
     Returns:
         None.
     """
     xfrm = group._element.grpSpPr.xfrm
-    for attr in ("rot", "flipH", "flipV"):
-        xfrm.attrib.pop(attr, None)
+    if rotation:
+        xfrm.set("rot", str(int(round(float(rotation) * 60000))))
+    else:
+        xfrm.attrib.pop("rot", None)
+    for attr, flag in (("flipH", flip_h), ("flipV", flip_v)):
+        if flag:
+            xfrm.set(attr, "1")
+        else:
+            xfrm.attrib.pop(attr, None)
     xfrm.find(qn("a:off")).set("x", str(Emu(Inches(x))))
     xfrm.find(qn("a:off")).set("y", str(Emu(Inches(y))))
     xfrm.find(qn("a:ext")).set("cx", str(Emu(Inches(w))))

@@ -849,7 +849,17 @@ def _code_for_group(shape, media_names, target_var="slide", group_var="grp", ass
             code = _code_for_any(child, media_names, group_var=group_var, assets_dir=assets_dir, capture=capture)
         if code:
             lines.append(code)
-    lines.append(f"shapes.set_group_bounds({group_var}, {x:.3f}, {y:.3f}, {w:.3f}, {h:.3f})")
+    bounds_kwargs = {}
+    rotation = _rotation_deg(shape)
+    if rotation is not None:
+        bounds_kwargs["rotation"] = rotation
+    if shape.get("flipH"):
+        bounds_kwargs["flip_h"] = True
+    if shape.get("flipV"):
+        bounds_kwargs["flip_v"] = True
+    bounds = f"shapes.set_group_bounds({group_var}, {x:.3f}, {y:.3f}, {w:.3f}, {h:.3f}"
+    bounds += f", {_format_kwargs(bounds_kwargs)})" if bounds_kwargs else ")"
+    lines.append(bounds)
     return "\n".join(lines)
 
 

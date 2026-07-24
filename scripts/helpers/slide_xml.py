@@ -1844,6 +1844,18 @@ def _extract_container(container, transform, group_path, slide_rels=None, image_
                 'children': children,
                 'z': z_counter[0],
             }
+            # Preserve the group's own rotation/flip. Children are laid out in
+            # the group's *unrotated* frame (_group_relative_transform zeroes
+            # rot), so the group must be rotated/flipped as a unit on rebuild;
+            # otherwise a rotated group (e.g. a 270 deg vector column) renders
+            # in its unrotated orientation.
+            if grp_xfrm:
+                if grp_xfrm.get('rot') and str(grp_xfrm['rot']) != '0':
+                    group_elem['rot'] = grp_xfrm['rot']
+                if grp_xfrm.get('flipH'):
+                    group_elem['flipH'] = grp_xfrm['flipH']
+                if grp_xfrm.get('flipV'):
+                    group_elem['flipV'] = grp_xfrm['flipV']
             z_counter[0] += 1
             elements.append(group_elem)
         elif tag == f'{{{MC}}}AlternateContent':
