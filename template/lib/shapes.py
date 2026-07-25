@@ -2170,6 +2170,8 @@ def add_image(
     crop: dict | None = None,
     lum: dict | None = None,
     rotation: float = 0,
+    flip_h: bool = False,
+    flip_v: bool = False,
 ) -> "Picture":
     """Add an image from the assets directory.
 
@@ -2254,9 +2256,6 @@ def add_image(
     except Exception:
         pass
 
-    if rotation:
-        pic.rotation = rotation
-
     if crop:
         try:
             if crop.get("l") is not None:
@@ -2288,6 +2287,7 @@ def add_image(
                 blip.insert(0, lum_el)
         except Exception:
             pass
+    _apply_rotation_and_flip(pic, rotation, flip_h, flip_v)
     return pic
 
 
@@ -3005,3 +3005,22 @@ def postprocess_powerpoint_native(pptx_path: Path | str) -> None:
 
 
 
+
+
+def add_raw_xml(slide_or_group, xml_str: str):
+    """Append a verbatim OOXML shape element (sp / grpSp / cxnSp) to the slide.
+
+    Used by generated code for shapes whose fidelity python-pptx calls cannot
+    reproduce — 3D transforms, sketched outlines, complex custom geometry. The
+    XML is inserted unchanged, so it must be relationship-free (no r:embed /
+    r:id references); the generator guarantees that before emitting this call.
+    """
+    from lxml import etree
+
+    element = etree.fromstring(xml_str.encode("utf-8"))
+    if hasattr(slide_or_group, "shapes"):
+        host = slide_or_group.shapes._spTree
+    else:  # a GroupShape
+        host = slide_or_group._element
+    host.append(element)
+    return element

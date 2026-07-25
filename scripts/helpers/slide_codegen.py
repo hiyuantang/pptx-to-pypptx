@@ -801,6 +801,15 @@ def _code_for_image(shape, media_names):
     lum = img_info.get("lum")
     if lum:
         kwargs["lum"] = lum
+    # Pictures carry their own rotation/flip in the xfrm (a photo stored
+    # sideways is often placed with rot=270° to display upright) — dropping
+    # them renders the raw bitmap orientation.
+    if shape.get("rot") and shape.get("rot") != "0":
+        kwargs["rotation"] = int(shape["rot"]) / 60000
+    if shape.get("flipH") in (True, "1", 1):
+        kwargs["flip_h"] = True
+    if shape.get("flipV") in (True, "1", 1):
+        kwargs["flip_v"] = True
     return f"shapes.add_image(slide, {name!r}, {x:.3f}, {y:.3f}, {w:.3f}, {h:.3f}" + (
         f", {_format_kwargs(kwargs)})" if kwargs else ")"
     )
@@ -938,6 +947,13 @@ def _code_for_text_overlay(shape, x, y, w, h):
 
 def _code_for_any(shape, media_names=None, group_var="slide", assets_dir=None, capture=None):
     shape_type = shape.get("type")
+
+    # Verbatim OOXML passthrough for shapes whose fidelity generated code
+    # cannot reproduce (3D, sketched outlines, complex custom geometry). The
+    # XML is re-injected unchanged at build time, so nothing is lost.
+    if shape_type == "raw":
+        return f"shapes.add_raw_xml({group_var}, {shape['raw_xml']!r})"
+
     x, y, w, h = shape["x"], shape["y"], shape["w"], shape["h"]
     geom = shape.get("geom", {})
     geom_type = geom.get("type")

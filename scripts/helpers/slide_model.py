@@ -178,6 +178,10 @@ def _parse_effect_string(s: str) -> dict:
 
 def normalize_element(elem: dict) -> dict:
     """Return a canonical dict for any slide element."""
+    # Verbatim-XML passthrough elements carry their original OOXML unchanged;
+    # there is nothing to normalize (and normalizing would drop raw_xml).
+    if elem.get("type") == "raw":
+        return elem
     out = {
         "type": elem.get("type"),
         "name": elem.get("name"),

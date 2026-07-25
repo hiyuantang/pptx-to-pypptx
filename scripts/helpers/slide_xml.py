@@ -1084,6 +1084,46 @@ def _add_text(elem_dict, txBody, slide_rels=None,
         for p in paragraphs
     ):
         paragraphs = []
+    # PowerPoint's "shrink text on overflow" stores the effective shrink on
+    # <a:normAutofit fontScale=".." lnSpcReduction="..">. python-pptx cannot
+    # re-run autofit at build time, so bake the effective font sizes (and line
+    # spacing) into the runs; otherwise text renders at 100% and overflows.
+    naf = txBody.find(f'{{{A}}}bodyPr/{{{A}}}normAutofit')
+    if naf is not None:
+        scale = int(naf.get('fontScale', '100000') or '100000') / 100000.0
+        reduction = int(naf.get('lnSpcReduction', '0') or '0') / 100000.0
+        if scale != 1.0 or reduction != 0.0:
+            # Runs often inherit their size from the shape's own lstStyle
+            # (lvl1pPr/defRPr sz); resolve it so there is a size to scale —
+            # otherwise the build falls back to an unrelated default and the
+            # text overflows its box. Sizes use the run key 'sz' (a string in
+            # hundredths of a point), matching parse_run/normalize_run.
+            def_rpr = txBody.find(
+                f'{{{A}}}lstStyle/{{{A}}}lvl1pPr/{{{A}}}defRPr')
+            base_sz = (int(def_rpr.get('sz'))
+                       if def_rpr is not None and def_rpr.get('sz') else None)
+
+            def _scaled_sz(sz):
+                return str(int(round(int(sz) * scale)))
+
+            for p in paragraphs:
+                for r in p.get('runs', []):
+                    if r.get('sz'):
+                        r['sz'] = _scaled_sz(r['sz'])
+                    elif base_sz:
+                        r['sz'] = _scaled_sz(base_sz)
+                if p.get('sz'):
+                    p['sz'] = _scaled_sz(p['sz'])
+                if reduction:
+                    ls = p.get('lnSpc')
+                    try:
+                        ls_val = int(ls)
+                    except (TypeError, ValueError):
+                        ls_val = None
+                    if ls_val is not None and ls_val > 1000:
+                        p['lnSpc'] = str(int(ls_val * (1 - reduction)))
+                    elif ls is None:
+                        p['lnSpc'] = str(int(100000 * (1 - reduction)))
     elem_dict['paragraphs'] = paragraphs
     elem_dict['text'] = '\n'.join(p['text'] for p in paragraphs)
     # Capture body properties whenever there is real content, including
@@ -1803,16 +1843,54 @@ def parse_graphicFrame(gf, transform, group_path, slide_rels=None):
 # Recursive extraction
 # ---------------------------------------------------------------------------
 
+_R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+
+
+def _needs_raw_passthrough(el):
+    """True when a top-level shape should be preserved as verbatim OOXML.
+
+    The generated python-pptx code cannot faithfully reproduce 3D transforms
+    (``a:scene3d``/``a:sp3d``), sketched outlines (``ask:lineSketchStyleProps``),
+    or arbitrary custom geometry (rotation, fills and effects are lost when it
+    is rasterized to an SVG image). Shapes using those features are emitted as
+    raw XML and re-injected unchanged at build time — unless the subtree holds
+    any relationship reference (r:embed, r:id, ...), which would dangle in the
+    rebuilt package; those keep the regular (degraded) code path.
+    """
+    has_feature = False
+    for node in el.iter():
+        tag = node.tag
+        if (tag == f'{{{A}}}custGeom' or tag == f'{{{A}}}scene3d'
+                or tag == f'{{{A}}}sp3d' or tag.endswith('}lineSketchStyleProps')):
+            has_feature = True
+        for attr in node.attrib:
+            if attr.startswith('{' + _R_NS + '}'):
+                return False
+    return has_feature
+
+
 def _extract_container(container, transform, group_path, slide_rels=None, image_rels=None, z_counter=None,
                        layout_ph_map=None, master_ph_map=None,
                        layout_text_map=None, master_text_map=None, master_tx_styles=None,
-                       layout_bodyPr_map=None, master_bodyPr_map=None):
+                       layout_bodyPr_map=None, master_bodyPr_map=None, top_level=False):
     """Recursively extract elements from a spTree or grpSp container."""
     if z_counter is None:
         z_counter = [0]
     elements = []
     for child in container:
         tag = child.tag
+        if (top_level
+                and tag in (f'{{{P}}}sp', f'{{{P}}}grpSp', f'{{{P}}}cxnSp')
+                and _needs_raw_passthrough(child)):
+            elements.append({
+                'type': 'raw',
+                'name': get_name(child),
+                'id': get_id(child),
+                'raw_xml': ET.tostring(child, encoding='unicode'),
+                'z': z_counter[0],
+            })
+            z_counter[0] += 1
+            continue
         if tag == f'{{{P}}}sp':
             e = parse_sp(child, transform, group_path, slide_rels, layout_ph_map, master_ph_map,
                          layout_text_map, master_text_map, master_tx_styles,
@@ -1888,7 +1966,7 @@ def _extract_container(container, transform, group_path, slide_rels=None, image_
                     choice, transform, group_path, slide_rels, image_rels, z_counter,
                     layout_ph_map, master_ph_map,
                     layout_text_map, master_text_map, master_tx_styles,
-                    layout_bodyPr_map, master_bodyPr_map
+                    layout_bodyPr_map, master_bodyPr_map, top_level=top_level
                 ))
     return elements
 
@@ -1915,7 +1993,8 @@ def extract_elements(xml_path):
                               layout_ph_map=layout_ph_map, master_ph_map=master_ph_map,
                               layout_text_map=layout_text_map, master_text_map=master_text_map,
                               master_tx_styles=master_tx_styles,
-                              layout_bodyPr_map=layout_bodyPr_map, master_bodyPr_map=master_bodyPr_map)
+                              layout_bodyPr_map=layout_bodyPr_map, master_bodyPr_map=master_bodyPr_map,
+                              top_level=True)
 
 
 def read_slide_shapes(slide_xml_path: Path) -> list[dict]:
