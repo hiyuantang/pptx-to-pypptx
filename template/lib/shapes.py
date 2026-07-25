@@ -365,10 +365,14 @@ def _apply_adjustments(shape, adjustments):
 def _apply_rotation_and_flip(shape, rotation, flip_h, flip_v):
     if rotation:
         shape.rotation = rotation
-    if flip_h:
-        shape.flip_horizontal = True
-    if flip_v:
-        shape.flip_vertical = True
+    if flip_h or flip_v:
+        # python-pptx has no flip API; set the xfrm attributes directly.
+        xfrm = shape._element.spPr.xfrm
+        if xfrm is not None:
+            if flip_h:
+                xfrm.set("flipH", "1")
+            if flip_v:
+                xfrm.set("flipV", "1")
 
 
 def _remove_autofit(tf):
@@ -2044,6 +2048,9 @@ def add_image(
     h: float,
     crop: dict | None = None,
     lum: dict | None = None,
+    rotation: float = 0,
+    flip_h: bool = False,
+    flip_v: bool = False,
 ) -> "Picture":
     """Add an image from the assets directory.
 
@@ -2143,6 +2150,7 @@ def add_image(
                 pic.contrast = int(lum["contrast"]) / 1000
         except Exception:
             pass
+    _apply_rotation_and_flip(pic, rotation, flip_h, flip_v)
     return pic
 
 

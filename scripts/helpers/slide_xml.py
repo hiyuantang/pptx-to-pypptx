@@ -988,6 +988,46 @@ def _add_text(elem_dict, txBody, slide_rels=None,
         for p in paragraphs
     ):
         paragraphs = []
+    # PowerPoint's "shrink text on overflow" stores the effective shrink on
+    # <a:normAutofit fontScale=".." lnSpcReduction="..">. python-pptx cannot
+    # re-run autofit at build time, so bake the effective font sizes (and line
+    # spacing) into the runs; otherwise text renders at 100% and overflows.
+    naf = txBody.find(f'{{{A}}}bodyPr/{{{A}}}normAutofit')
+    if naf is not None:
+        scale = int(naf.get('fontScale', '100000') or '100000') / 100000.0
+        reduction = int(naf.get('lnSpcReduction', '0') or '0') / 100000.0
+        if scale != 1.0 or reduction != 0.0:
+            # Runs often inherit their size from the shape's own lstStyle
+            # (lvl1pPr/defRPr sz); resolve it so there is a size to scale —
+            # otherwise the build falls back to an unrelated default and the
+            # text overflows its box. Sizes use the run key 'sz' (a string in
+            # hundredths of a point), matching parse_run/normalize_run.
+            def_rpr = txBody.find(
+                f'{{{A}}}lstStyle/{{{A}}}lvl1pPr/{{{A}}}defRPr')
+            base_sz = (int(def_rpr.get('sz'))
+                       if def_rpr is not None and def_rpr.get('sz') else None)
+
+            def _scaled_sz(sz):
+                return str(int(round(int(sz) * scale)))
+
+            for p in paragraphs:
+                for r in p.get('runs', []):
+                    if r.get('sz'):
+                        r['sz'] = _scaled_sz(r['sz'])
+                    elif base_sz:
+                        r['sz'] = _scaled_sz(base_sz)
+                if p.get('sz'):
+                    p['sz'] = _scaled_sz(p['sz'])
+                if reduction:
+                    ls = p.get('lnSpc')
+                    try:
+                        ls_val = int(ls)
+                    except (TypeError, ValueError):
+                        ls_val = None
+                    if ls_val is not None and ls_val > 1000:
+                        p['lnSpc'] = str(int(ls_val * (1 - reduction)))
+                    elif ls is None:
+                        p['lnSpc'] = str(int(100000 * (1 - reduction)))
     elem_dict['paragraphs'] = paragraphs
     elem_dict['text'] = '\n'.join(p['text'] for p in paragraphs)
     if elem_dict['text']:
