@@ -17,6 +17,7 @@ from lib import comments as comments_lib
 
 BASE = Path(__file__).parent
 shapes.set_assets_dir(BASE / "assets")
+shapes.set_raw_dir(BASE / "raw")  # verbatim-XML sidecars for add_raw_xml()
 
 parser = argparse.ArgumentParser(description="Build the generated slide deck.")
 parser.parse_args()  # no options; supports --help and rejects stray arguments

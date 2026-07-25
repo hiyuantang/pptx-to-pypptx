@@ -904,6 +904,27 @@ def _apply_flip_to_svg(svg_data: str, flip_h: bool, flip_v: bool) -> str:
     return f'{head}<g transform="{transform}">{inner}</g>{tail}'
 
 
+def _write_raw_sidecar(shape, assets_dir):
+    """Persist a verbatim-XML passthrough shape to the ``raw/`` store.
+
+    Returns the sidecar filename to hand to ``add_raw_xml`` so the generated
+    code reads ``shapes.add_raw_xml(slide, "raw_ab12cd.xml")`` rather than
+    inlining a multi-KB blob (mirrors how ``_code_for_freeform_svg`` files SVGs
+    under ``assets/``). When no project dir is available the raw XML is returned
+    inline as a fallback — ``add_raw_xml`` accepts either form.
+    """
+    xml = shape["raw_xml"]
+    if not assets_dir:
+        return xml
+    raw_dir = Path(assets_dir).parent / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    name = f"raw_{hashlib.sha1(xml.encode('utf-8')).hexdigest()[:12]}.xml"
+    path = raw_dir / name
+    if not path.exists():
+        path.write_text(xml, encoding="utf-8")
+    return name
+
+
 def _code_for_freeform_svg(shape, x, y, w, h, assets_dir, group_var="slide"):
     """Write a custom-geometry shape's SVG to assets/ and emit add_image."""
     svg_data = shape.get("geom", {}).get("svg_data")
@@ -950,9 +971,20 @@ def _code_for_any(shape, media_names=None, group_var="slide", assets_dir=None, c
 
     # Verbatim OOXML passthrough for shapes whose fidelity generated code
     # cannot reproduce (3D, sketched outlines, complex custom geometry). The
-    # XML is re-injected unchanged at build time, so nothing is lost.
+    # XML is re-injected unchanged at build time, so nothing is lost. It is
+    # filed under raw/ and referenced by name (like a freeform SVG) so the
+    # generated slide stays a readable one-liner instead of an inline XML blob.
     if shape_type == "raw":
-        return f"shapes.add_raw_xml({group_var}, {shape['raw_xml']!r})"
+        raw_ref = _write_raw_sidecar(shape, assets_dir)
+        call = f"shapes.add_raw_xml({group_var}, {raw_ref!r})"
+        # Bind a variable when a connector attaches to this shape, so the
+        # trailing connect_shapes(...) call can resolve it (add_raw_xml returns
+        # a handle exposing .shape_id). Without this the connector references an
+        # undefined name and the whole build aborts.
+        raw_var = (capture or {}).get(str(shape.get("id")))
+        if raw_var:
+            call = f"{raw_var} = {call}"
+        return call
 
     x, y, w, h = shape["x"], shape["y"], shape["w"], shape["h"]
     geom = shape.get("geom", {})

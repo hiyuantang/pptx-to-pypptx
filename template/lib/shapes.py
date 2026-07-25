@@ -29,6 +29,9 @@ _NATIVE_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", 
 
 
 ASSETS = None
+# Directory holding verbatim-XML sidecar files for add_raw_xml(); when unset it
+# is derived from ASSETS (``<project>/raw``). Set explicitly via set_raw_dir().
+RAW = None
 
 # Namespace URIs used for Office Math compatibility wrappers.
 MC_NS = "http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -1072,8 +1075,22 @@ def renumber_slide_ids(slide: "Slide") -> None:
         except ValueError:
             ids.append((0, cNvPr))
     ids.sort(key=lambda x: x[0])
+    remap = {}
     for new_id, (_, cNvPr) in enumerate(ids, start=1):
+        prev = cNvPr.get("id")
         cNvPr.set("id", str(new_id))
+        if prev is not None:
+            remap[prev] = str(new_id)
+    # Connectors reference their endpoints by shape id (a:stCxn / a:endCxn).
+    # Rewrite those refs so a connector still points at its shape after the
+    # renumber. This is a no-op for normal decks (ids are already 1..N there),
+    # but essential once verbatim-injected shapes perturb the id space — without
+    # it a connector attached to a passthrough shape would dangle.
+    for tag in ("a:stCxn", "a:endCxn"):
+        for ref in slide.element.iter(qn(tag)):
+            new = remap.get(ref.get("id"))
+            if new is not None:
+                ref.set("id", new)
     # Sync each fallback cNvPr ID with its Choice counterpart.
     for ac in slide.element.iter(f"{{{MC_NS}}}AlternateContent"):
         choice_sp = ac.find(f"{{{MC_NS}}}Choice/{{{P_NS}}}sp")
@@ -3007,20 +3024,92 @@ def postprocess_powerpoint_native(pptx_path: Path | str) -> None:
 
 
 
-def add_raw_xml(slide_or_group, xml_str: str):
-    """Append a verbatim OOXML shape element (sp / grpSp / cxnSp) to the slide.
+def set_raw_dir(path: Path | str) -> None:
+    """Set the directory holding verbatim-XML sidecar files for add_raw_xml()."""
+    global RAW
+    RAW = Path(path)
+
+
+class _RawShape:
+    """Minimal handle for a verbatim-injected shape.
+
+    Exposes just ``shape_id`` — enough for ``connect_shapes`` to attach a
+    connector to a passthrough shape (3D / sketched / custom geometry).
+    """
+
+    __slots__ = ("shape_id",)
+
+    def __init__(self, shape_id: int):
+        self.shape_id = int(shape_id)
+
+
+def _reid_subtree(element, start_id: int) -> int:
+    """Renumber every ``p:cNvPr`` id in ``element`` to unique ids from ``start_id``.
+
+    Verbatim-injected shapes carry their source deck's original ids, which can
+    collide with the ids python-pptx assigned to generated shapes. Renumbering
+    the whole subtree keeps ids unique; connector references (``a:stCxn`` /
+    ``a:endCxn``) *inside* the subtree are remapped too, so a preserved group's
+    own internal connectors keep pointing at the right children. Returns the new
+    top-level (first, document-order) id.
+    """
+    id_map = {}
+    nxt = start_id
+    top = None
+    for cNvPr in element.iter(qn("p:cNvPr")):
+        old = cNvPr.get("id")
+        cNvPr.set("id", str(nxt))
+        if old is not None:
+            id_map[old] = str(nxt)
+        if top is None:
+            top = nxt
+        nxt += 1
+    for tag in ("a:stCxn", "a:endCxn"):
+        for ref in element.iter(qn(tag)):
+            new = id_map.get(ref.get("id"))
+            if new is not None:
+                ref.set("id", new)
+    return top if top is not None else start_id
+
+
+def add_raw_xml(slide_or_group, source: str):
+    """Append a verbatim OOXML shape (sp / grpSp / cxnSp) to the slide.
+
+    ``source`` is normally a sidecar filename resolved against the ``raw/`` store
+    (keeps generated code a readable one-liner); a literal XML string beginning
+    with ``<`` is also accepted for backward compatibility.
 
     Used by generated code for shapes whose fidelity python-pptx calls cannot
     reproduce — 3D transforms, sketched outlines, complex custom geometry. The
-    XML is inserted unchanged, so it must be relationship-free (no r:embed /
-    r:id references); the generator guarantees that before emitting this call.
+    XML is inserted unchanged except that its shape ids are renumbered to stay
+    unique within the slide, so a connector targeting it resolves unambiguously.
+    It must be relationship-free (no r:embed / r:id); the generator guarantees
+    that before emitting this call.
+
+    Returns a lightweight handle whose ``shape_id`` lets ``connect_shapes``
+    attach a connector to the injected shape.
     """
     from lxml import etree
 
+    if source.lstrip().startswith("<"):
+        xml_str = source
+    else:
+        base = RAW if RAW is not None else (ASSETS.parent / "raw")
+        xml_str = (Path(base) / source).read_text(encoding="utf-8")
     element = etree.fromstring(xml_str.encode("utf-8"))
     if hasattr(slide_or_group, "shapes"):
         host = slide_or_group.shapes._spTree
     else:  # a GroupShape
         host = slide_or_group._element
+    # Renumber the injected subtree above every id already on the slide so its
+    # shapes stay unique (renumber_slide_ids compacts these to 1..N later).
+    root = host.getroottree().getroot()
+    existing = [
+        int(c.get("id"))
+        for c in root.iter(qn("p:cNvPr"))
+        if (c.get("id") or "").lstrip("-").isdigit()
+    ]
+    start = (max(existing) + 1) if existing else 1
+    top_id = _reid_subtree(element, start)
     host.append(element)
-    return element
+    return _RawShape(top_id)
