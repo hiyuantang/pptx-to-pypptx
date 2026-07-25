@@ -1479,6 +1479,12 @@ def add_box(
         The created ``Shape`` (or text-box shape when fill/line are absent).
     """
     if fill in (None, False, "none") and line in (None, False, "none"):
+        # A text box has no outline, so line-only styling (arrow heads, dash,
+        # cap, compound width) does not apply. Drop it before delegating —
+        # otherwise these connector kwargs reach _apply_text_frame and raise.
+        for k in ("line_width", "line_dash", "line_head", "line_tail",
+                  "line_cap", "line_cmpd"):
+            kwargs.pop(k, None)
         # Shape-only kwargs (rotation, flip, effects) are not text-frame
         # properties; apply them to the text box after creating it.
         shape_kwargs = {}
