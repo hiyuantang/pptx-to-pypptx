@@ -1264,15 +1264,15 @@ def _has_math_xml(paras):
     return False
 
 
-def _wrap_math_shape(shape):
-    """Wrap a shape containing Office Math in mc:AlternateContent for compatibility.
+def _wrap_math_element(sp):
+    """Wrap an in-tree shape element containing Office Math in mc:AlternateContent.
 
     The fallback is a full clone of the original shape with the Office Math blocks
     stripped out. A minimal fallback shape caused PowerPoint to treat the wrapper
     as corrupt and remove math shapes, especially when they were nested inside
-    group shapes.
+    group shapes. Strict OOXML validators treat ``a14:m`` as foreign and validate
+    the plain fallback instead, so wrapping also keeps validation clean.
     """
-    sp = shape._element
     parent = sp.getparent()
     if parent is None:
         return
@@ -1305,6 +1305,11 @@ def _wrap_math_shape(shape):
 
     fallback.append(fb_sp)
     parent.insert(index, ac)
+
+
+def _wrap_math_shape(shape):
+    """Wrap a python-pptx shape containing Office Math in mc:AlternateContent."""
+    _wrap_math_element(shape._element)
 
 
 # Generic shape helper
@@ -3112,4 +3117,11 @@ def add_raw_xml(slide_or_group, source: str):
     start = (max(existing) + 1) if existing else 1
     top_id = _reid_subtree(element, start)
     host.append(element)
+    # A passthrough shape can carry Office Math (a14:m) — e.g. a custom-geometry
+    # callout with an equation. Its source wrapped it in mc:AlternateContent;
+    # extracting the inner shape dropped that wrapper, so re-wrap here or the
+    # bare a14:m fails strict OOXML validation. (renumber_slide_ids keeps the
+    # fallback's cNvPr id in sync with the Choice's.)
+    if element.find(f".//{{{A14_NS}}}m") is not None:
+        _wrap_math_element(element)
     return _RawShape(top_id)
