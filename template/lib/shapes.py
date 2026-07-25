@@ -1083,8 +1083,11 @@ def renumber_slide_ids(slide: "Slide") -> None:
             choice_sp = ac.find(f"{{{MC_NS}}}Choice/*")
             fallback_sp = ac.find(f"{{{MC_NS}}}Fallback/*")
         if choice_sp is not None and fallback_sp is not None:
-            choice_cNvPr = choice_sp.find(f"{{{P_NS}}}nvSpPr/{{{P_NS}}}cNvPr")
-            fallback_cNvPr = fallback_sp.find(f"{{{P_NS}}}nvSpPr/{{{P_NS}}}cNvPr")
+            # First cNvPr in document order is the top-level shape's, for
+            # <p:sp> (nvSpPr), <p:grpSp> (nvGrpSpPr) and <p:graphicFrame>
+            # (nvGraphicFramePr) alike.
+            choice_cNvPr = choice_sp.find(f".//{{{P_NS}}}cNvPr")
+            fallback_cNvPr = fallback_sp.find(f".//{{{P_NS}}}cNvPr")
             if choice_cNvPr is not None and fallback_cNvPr is not None:
                 fallback_cNvPr.set("id", choice_cNvPr.get("id"))
 
@@ -1276,8 +1279,10 @@ def _wrap_math_shape(shape):
 
     # The fallback shape represents the same object as the Choice shape, so it
     # should carry the same cNvPr id/name. renumber_slide_ids will keep them in
-    # sync and skip the fallback copy.
-    fb_cNvPr = fb_sp.find(f"{qn('p:nvSpPr')}/{qn('p:cNvPr')}")
+    # sync and skip the fallback copy. Use a descendant search for the first
+    # cNvPr so this works for both <p:sp> (nvSpPr) and <p:graphicFrame>
+    # (nvGraphicFramePr) wrappers.
+    fb_cNvPr = fb_sp.find(f".//{qn('p:cNvPr')}")
     if fb_cNvPr is not None:
         fb_cNvPr.set("name", fb_cNvPr.get("name", "MathShape"))
 
@@ -2592,7 +2597,9 @@ def add_custom_table(
     else:
         raise ValueError("Either rows or cells must be provided")
 
-    table = _shapes(slide_or_group).add_table(n_rows, n_cols, Inches(x), Inches(y), Inches(w), Inches(h)).table
+    gframe = _shapes(slide_or_group).add_table(n_rows, n_cols, Inches(x), Inches(y), Inches(w), Inches(h))
+    table = gframe.table
+    cell_has_math = False
 
     if row_heights:
         for ri, rh in enumerate(row_heights):
@@ -2614,6 +2621,8 @@ def add_custom_table(
                     spec["fill"] = fills[ri][ci]
 
             text = spec.get("text", "")
+            if isinstance(text, list) and _has_math_xml(text):
+                cell_has_math = True
             _apply_cell_text(
                 cell, text,
                 font=spec.get("font"),
@@ -2677,6 +2686,14 @@ def add_custom_table(
                     end_ci = ci + grid_span - 1
                     if end_ri < n_rows and end_ci < n_cols:
                         table.cell(ri, ci).merge(table.cell(end_ri, end_ci))
+
+    # Office Math (<a14:m>) is only schema-valid as an a14 extension. A shape
+    # gets wrapped in mc:AlternateContent by add_shape/add_text; a table is a
+    # graphicFrame, so wrap it here the same way (Choice with math / Fallback
+    # without) or the bare <a14:m> in a cell fails validation and PowerPoint may
+    # drop the equations.
+    if cell_has_math:
+        _wrap_math_shape(gframe)
 
     return table
 
