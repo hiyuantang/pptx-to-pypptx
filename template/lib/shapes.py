@@ -554,7 +554,15 @@ def _apply_fill(shape, fill):
             if spPr.find(qn("a:noFill")) is None:
                 spPr.append(etree.Element(qn("a:noFill")))
         return
+    if fill == "image":
+        # Unresolved picture-fill sentinel: no asset to apply, leave the default.
+        return
     if isinstance(fill, dict):
+        if fill.get("type") == "image":
+            # Picture fill on a shape. Table cells are not supported here.
+            if not is_cell:
+                _apply_blip_fill(shape, fill)
+            return
         if fill.get("type") == "gradient":
             shape.fill.gradient()
             angle = fill.get("angle", 0)
@@ -582,6 +590,69 @@ def _apply_fill(shape, fill):
             return
     shape.fill.solid()
     _apply_theme_color(shape.fill.fore_color, fill)
+
+
+def _apply_blip_fill(shape, spec):
+    """Fill an autoshape with a picture (``a:blipFill``) from the assets dir.
+
+    python-pptx has no high-level API for picture fill on autoshapes, so embed
+    the image part and write the ``<a:blipFill>`` element into ``spPr`` directly.
+    ``spec`` is ``{'type': 'image', 'image': <filename>, 'srcRect': {...},
+    'tile': bool}``. Missing assets degrade to a no-op rather than break the build.
+    """
+    name = spec.get("image")
+    if not name or ASSETS is None:
+        return
+    path = ASSETS / name
+    if not path.exists():
+        return
+    tmp = None
+    if path.suffix.lower() not in _NATIVE_IMAGE_EXTS:
+        # SVG/WebP/HEIC/... -> PNG, same as add_image().
+        path = _convert_to_png(path)
+        tmp = path
+    try:
+        _image_part, r_id = shape.part.get_or_add_image_part(str(path))
+    finally:
+        if tmp is not None:
+            try:
+                tmp.unlink()
+            except Exception:
+                pass
+
+    spPr = shape._element.spPr
+    for tag in ("a:noFill", "a:solidFill", "a:gradFill", "a:pattFill",
+                "a:blipFill", "a:grpFill"):
+        for el in spPr.findall(qn(tag)):
+            spPr.remove(el)
+
+    blipFill = spPr.makeelement(qn("a:blipFill"), {})
+    blip = etree.SubElement(blipFill, qn("a:blip"))
+    blip.set(qn("r:embed"), r_id)
+    srcRect = spec.get("srcRect")
+    if srcRect:
+        sr = etree.SubElement(blipFill, qn("a:srcRect"))
+        for edge in ("l", "t", "r", "b"):
+            if srcRect.get(edge) is not None:
+                sr.set(edge, str(srcRect[edge]))
+    if spec.get("tile"):
+        etree.SubElement(blipFill, qn("a:tile"))
+    else:
+        stretch = etree.SubElement(blipFill, qn("a:stretch"))
+        etree.SubElement(stretch, qn("a:fillRect"))
+
+    # In CT_ShapeProperties the fill group sits after the geometry and before
+    # <a:ln>. Insert right after the geometry (or xfrm) so the order is valid.
+    # NB: an lxml element with no children is falsy, so test against None.
+    anchor = spPr.find(qn("a:prstGeom"))
+    if anchor is None:
+        anchor = spPr.find(qn("a:custGeom"))
+    if anchor is None:
+        anchor = spPr.find(qn("a:xfrm"))
+    if anchor is not None:
+        anchor.addnext(blipFill)
+    else:
+        spPr.insert(0, blipFill)
 
 
 # ---------------------------------------------------------------------------

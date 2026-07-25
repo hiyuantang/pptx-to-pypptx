@@ -144,10 +144,15 @@ def parse_color(elem):
     return base
 
 
-def parse_fill(spPr_or_tcPr):
+def parse_fill(spPr_or_tcPr, rels=None):
     """Extract fill from shape properties or table cell properties.
 
-    Returns a color string, 'none', 'image', or a dict for gradient/pattern fills.
+    Returns a color string, 'none', a dict for gradient/pattern/image fills, or
+    the bare sentinel 'image' when a picture fill's embed cannot be resolved.
+
+    When ``rels`` (a slide's rId -> {'target', 'type'} map) is supplied, a
+    ``blipFill`` is resolved to ``{'type': 'image', 'image': <filename>, ...}``
+    so the picture-filled shape round-trips instead of collapsing to a color.
     """
     if spPr_or_tcPr is None:
         return None
@@ -188,7 +193,24 @@ def parse_fill(spPr_or_tcPr):
         return 'none'
     blipFill = spPr_or_tcPr.find(f'{{{A}}}blipFill')
     if blipFill is not None:
-        return 'image'
+        result = {'type': 'image'}
+        blip = blipFill.find(f'{{{A}}}blip')
+        r_id = blip.get(f'{{{R}}}embed') if blip is not None else None
+        if r_id and rels and r_id in rels:
+            result['image'] = os.path.basename(rels[r_id]['target'])
+        srcRect = blipFill.find(f'{{{A}}}srcRect')
+        if srcRect is not None:
+            crop = {e: srcRect.get(e) for e in ('l', 't', 'r', 'b')
+                    if srcRect.get(e) is not None}
+            if crop:
+                result['srcRect'] = crop
+        if blipFill.find(f'{{{A}}}tile') is not None:
+            result['tile'] = True
+        # Without a resolvable embed the fill cannot be reproduced; fall back to
+        # the bare sentinel so the codegen degrades it instead of guessing.
+        if 'image' not in result:
+            return 'image'
+        return result
     return None
 
 
@@ -1139,7 +1161,7 @@ def parse_sp(sp, transform, group_path, slide_rels=None, layout_ph_map=None, mas
         if xfrm.get('rot') and xfrm.get('rot') != '0':
             elem['rot'] = xfrm.get('rot')
 
-    elem['fill'] = parse_fill(spPr)
+    elem['fill'] = parse_fill(spPr, slide_rels)
     elem['line'] = parse_shape_line(spPr)
     effects = parse_effects(spPr)
     if effects:

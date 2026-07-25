@@ -20,9 +20,16 @@ def _map_color(value):
         return None
     if value == "none":
         return "none"
+    if value == "image":
+        # Unresolvable picture fill (no embed/rels); drop it rather than emit an
+        # invalid color literal. add_box/add_shape treat None as "leave default".
+        return None
     if isinstance(value, dict):
         # Gradient/pattern dicts keep their structure; only their inner colors
         # are mapped. Color+alpha dicts are preserved as-is.
+        if value.get("type") == "image":
+            # Picture fill: path/srcRect/tile only, no colors to map.
+            return dict(value)
         if value.get("type") == "gradient":
             return {
                 **value,
