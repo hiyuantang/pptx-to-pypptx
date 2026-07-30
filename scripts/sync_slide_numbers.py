@@ -132,8 +132,41 @@ def compute_plan(
     }
 
 
+def check_no_clobber(renames: list[tuple[Path, Path]], deletes: list[Path]) -> None:
+    """Fail before touching disk if a rename would destroy a surviving slide.
+
+    A rename target is safe only if nothing occupies it, or the occupant is
+    itself being moved away or deleted. Without this, `Path.rename` would
+    silently overwrite the occupant, because POSIX rename replaces the target.
+    """
+    doomed = {path.resolve() for path in deletes}
+    sources = {old_path.resolve() for old_path, _ in renames}
+    claimed: dict[Path, Path] = {}
+
+    for old_path, new_path in renames:
+        target = new_path.resolve()
+        if target in claimed:
+            raise ValueError(
+                f"Two slides would both be renamed to {new_path.name} "
+                f"({claimed[target].name} and {old_path.name})."
+            )
+        claimed[target] = old_path
+        if new_path.exists() and target not in doomed and target not in sources:
+            raise ValueError(
+                f"Refusing to rename {old_path.name} -> {new_path.name}: "
+                f"{new_path.name} already exists and is neither being moved nor deleted."
+            )
+
+
 def apply_plan(plan: dict, dry_run: bool) -> None:
-    """Execute renames via temp names to avoid collisions, then delete removed slides."""
+    """Delete removed slides, then rename survivors via temp names.
+
+    Deletes run *first*: slides in a series share the descriptive stem, so a
+    survivor is often renamed onto the exact filename of a slide being deleted
+    (s41_language_model.py -> s35_language_model.py while s35_language_model.py
+    is itself being deleted). Deleting afterwards unlinks by original path and
+    would remove the survivor that had just taken that name, losing both slides.
+    """
     renames = plan["renames"]
     deletes = plan["deletes"]
 
@@ -147,7 +180,14 @@ def apply_plan(plan: dict, dry_run: bool) -> None:
             print(f"  reserve slot {slot:02d}")
         return
 
-    # Two-pass rename to avoid collisions.
+    check_no_clobber(renames, deletes)
+
+    # Deleted slides are never rename sources, so removing them first cannot
+    # strand a rename. It does free the filenames survivors are moving into.
+    for path in deletes:
+        path.unlink()
+
+    # Two-pass rename so that rename sources and targets cannot collide.
     temp_paths = []
     for old_path, _ in renames:
         temp_path = old_path.with_suffix(f".tmp-{uuid.uuid4().hex[:8]}")
@@ -156,9 +196,6 @@ def apply_plan(plan: dict, dry_run: bool) -> None:
 
     for temp_path, (_, new_path) in zip(temp_paths, renames):
         temp_path.rename(new_path)
-
-    for path in deletes:
-        path.unlink()
 
     print(f"Renamed {len(renames)} file(s), deleted {len(deletes)} file(s).")
     for slot in plan["reserved"]:
@@ -204,7 +241,12 @@ def main():
         f"(+{len(add_positions)} -{len(delete_positions)})"
     )
 
-    apply_plan(plan, dry_run=not args.apply)
+    try:
+        apply_plan(plan, dry_run=not args.apply)
+    except ValueError as e:
+        print(f"Error: {e}")
+        print("No files were changed.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
