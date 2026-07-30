@@ -23,22 +23,11 @@ Usage:
 
 import argparse
 import contextlib
-import hashlib
 import importlib.util
 import io
-import json
 import re
-import shutil
 import sys
-import uuid
-import zipfile
 from pathlib import Path
-
-# Comments added by add_comment.py that are not yet in the built deck.
-_PENDING_FILE = ".pending.json"
-_NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main"
-_NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-_NS_P188 = "http://schemas.microsoft.com/office/powerpoint/2018/8/main"
 
 _SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(_SCRIPTS))
@@ -84,201 +73,151 @@ def sync_project(project_dir: Path) -> str:
     if out_pptx is None or not out_pptx.exists():
         return f"{name}: OK — deck not built yet; nothing to sync. Proceed."
 
-    # Comments round-trip like slides: mirror the deck's current comments back
-    # into the store first, so a human reply/deletion in PowerPoint sticks and is
-    # not resurrected by the next build. Runs on every path (a human may edit
-    # only comments, leaving slide hashes unchanged).
-    comment_note = _sync_comments(project_dir, out_pptx)
+    new_state = state_mod.compute_state(out_pptx)
+    old_state = state_mod.read_state(project_dir)
 
-    status = _sync_slides(project_dir, state_mod, out_pptx, name)
+    # Slides first: a regenerated slide file already gets its comment region from
+    # the deck, so those slides need no second pass.
+    status, regenerated = _sync_slides(
+        project_dir, state_mod, out_pptx, name, old_state, new_state
+    )
+
+    # Comments live in their own part, so a reviewer replying in PowerPoint leaves
+    # every slide hash untouched and the code above reports "no changes". Patch the
+    # comment region of those slide files directly, leaving the rest of each file
+    # byte-identical.
+    comment_note, comments_ok = _sync_comments(
+        project_dir, out_pptx, state_mod, old_state, new_state, regenerated
+    )
+
+    # The marker is advanced only once BOTH halves are done. Writing it earlier
+    # would mark a comment change as handled even if its patch failed, and the
+    # next run would compare against the new digest and never retry.
+    if comments_ok:
+        state_mod.write_state(project_dir, new_state)
+
     if comment_note:
         status = f"{status} ({comment_note})"
     return status
 
 
-def _comments_signature(comments_dir: Path):
-    """Content hash of the comment store, or ``None`` if there is no store."""
-    if not comments_dir.is_dir():
-        return None
-    h = hashlib.sha256()
-    for path in sorted(comments_dir.rglob("*")):
-        if path.is_file():
-            h.update(path.relative_to(comments_dir).as_posix().encode("utf-8"))
-            h.update(b"\0")
-            h.update(path.read_bytes())
-            h.update(b"\0")
-    return h.hexdigest()
+def _slide_file(project_dir: Path, idx: int):
+    """The project's slide file for a 1-based deck position, or ``None``."""
+    matches = sorted((project_dir / "slides").glob(f"s{idx:02d}_*.py"))
+    return matches[0] if matches else None
 
 
-def _sync_comments(project_dir: Path, out_pptx: Path) -> str:
-    """Mirror the built deck's comments back into ``comments/`` (deck -> store).
+def _sync_comments(
+    project_dir: Path, out_pptx: Path, state_mod, old_state, new_state, regenerated: set
+) -> tuple:
+    """Patch the comment region of slide files whose comments changed in the deck.
 
-    Makes modern comments behave like normal PowerPoint comments across the round
-    trip: whatever the human left in the deck (replies added, comments deleted)
-    becomes the store, so ``build_deck.py`` re-attaches exactly that and never
-    brings a removed comment back. Returns a short note when the store changed,
-    else "". Never raises — a comment hiccup must not derail the sync.
+    Makes comments behave like normal PowerPoint comments across the round trip:
+    whatever the human left in the deck (replies added, comments deleted, threads
+    resolved) becomes what the slide file says, so the next build reproduces
+    exactly that and never resurrects a removed comment.
+
+    Only the fenced region is rewritten -- hand-written slide code in the same file
+    is untouched. Returns ``(note, ok)``: a short note when something changed, and
+    ``ok=False`` if any slide could not be patched, which keeps the caller from
+    advancing the round-trip marker so the next run retries. Never raises: a
+    comment hiccup must not derail the sync.
     """
     try:
-        from helpers.comments import extract_comments
-    except Exception:
-        return ""
-    comments_dir = project_dir / "comments"
-    carried = []
-    try:
-        before = _comments_signature(comments_dir)
-
-        # A comment written by add_comment.py but not yet built exists ONLY in
-        # the store. A blind mirror cannot tell that apart from a comment the
-        # human deleted in PowerPoint, so carry such comments across the mirror
-        # (and drop ids that already reached the deck -- those are built now).
-        deck_ids = _deck_cm_ids(out_pptx)
-        pending_ids = [i for i in _read_pending(comments_dir) if i not in deck_ids]
-        carried = _collect_pending(comments_dir, set(pending_ids))
-        authors_path = comments_dir / "authors.xml"
-        authors_xml = (
-            authors_path.read_text(encoding="utf-8") if authors_path.is_file() else None
+        from helpers.comments import (
+            extract_authors,
+            extract_comments,
+            merge_authors_json,
+            parse_comment_calls,
+            patch_comment_region,
+            render_comment_calls,
         )
-
-        # Full re-capture from the deck; rewrites the store when comments exist.
-        found = extract_comments(out_pptx, project_dir)
-        if found == 0 and comments_dir.is_dir():
-            # The deck now has zero comments (e.g. the last one was deleted in
-            # PowerPoint). extract_comments leaves the store untouched when it
-            # finds none, so drop it here or those comments would re-attach.
-            shutil.rmtree(comments_dir)
-
-        _reinject_pending(comments_dir, carried, authors_xml)
-
-        pending_path = comments_dir / _PENDING_FILE
-        if pending_ids and comments_dir.is_dir():
-            pending_path.write_text(
-                json.dumps({"ids": pending_ids}, indent=2), encoding="utf-8"
-            )
-        elif pending_path.is_file():
-            pending_path.unlink()
-
-        after = _comments_signature(comments_dir)
     except Exception:
-        return ""
-    if before == after:
-        return ""
-    note = "comments mirrored from deck"
-    if carried:
-        note += f"; {len(carried)} unbuilt comment(s) preserved"
-    return note
-
-
-def _cm_ids(xml: str) -> set:
-    return set(re.findall(r'<p188:cm\b[^>]*?\bid="([^"]+)"', xml))
-
-
-def _deck_cm_ids(out_pptx: Path) -> set:
-    """Comment ids present in the built deck."""
-    ids: set = set()
+        return "", True
     try:
-        with zipfile.ZipFile(out_pptx) as zf:
-            for name in zf.namelist():
-                if re.match(r"ppt/comments/.*\.xml$", name):
-                    ids |= _cm_ids(zf.read(name).decode("utf-8"))
-    except Exception:
-        pass
-    return ids
+        targets = set(state_mod.changed_comment_slides(old_state, new_state))
 
+        # Slides carrying an unbuilt (pending) comment are always re-checked, even
+        # with an unchanged digest: build_deck.py stamps a fresh marker, so nothing
+        # else would ever revisit them. Once the deck has the comment the deck copy
+        # wins and the flag clears itself; while it is still unbuilt the render is
+        # identical and the patch is a no-op. Leaving the flag set would be worse
+        # than useless -- a later deletion in PowerPoint would be carried over and
+        # the comment resurrected.
+        for path in sorted((project_dir / "slides").glob("s*.py")):
+            m = re.match(r"s(\d+)_", path.name)
+            if m and "pending=True" in path.read_text(encoding="utf-8"):
+                targets.add(int(m.group(1)))
 
-def _read_pending(comments_dir: Path) -> list:
-    path = comments_dir / _PENDING_FILE
-    if not path.is_file():
-        return []
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return [i for i in data.get("ids", []) if isinstance(i, str)]
-    except Exception:
-        return []
+        targets = sorted(n for n in targets if n not in regenerated)
+        if not targets:
+            return "", True
 
+        deck_comments = extract_comments(out_pptx)
+        merge_authors_json(extract_authors(out_pptx), project_dir / "lib")
 
-def _collect_pending(comments_dir: Path, ids: set) -> list:
-    """``[(slide_key, cm_xml)]`` for the given comment ids, read from the store."""
-    found = []
-    manifest_path = comments_dir / "manifest.json"
-    if not ids or not manifest_path.is_file():
-        return found
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        return found
-    for slide, files in (manifest.get("slides") or {}).items():
-        for fname in files:
-            path = comments_dir / fname
-            if not path.is_file():
+        patched, failed = [], []
+        for idx in targets:
+            path = _slide_file(project_dir, idx)
+            if path is None:
                 continue
-            xml = path.read_text(encoding="utf-8")
-            for match in re.finditer(r"<p188:cm\b.*?</p188:cm>", xml, re.S):
-                frag = match.group(0)
-                cm_id = re.search(r'\bid="([^"]+)"', frag)
-                if cm_id and cm_id.group(1) in ids:
-                    found.append((str(slide), frag))
-    return found
+            source = path.read_text(encoding="utf-8")
+            threads = list(deck_comments.get(idx) or [])
 
+            # A comment added by add_comment.py but not built yet exists only in
+            # the code. A blind mirror cannot tell that apart from a comment the
+            # human deleted in PowerPoint, so carry pending ones across; the flag
+            # clears itself once the deck has the comment (the deck copy wins).
+            built = {(t.get("author"), t.get("created")) for t in threads}
+            threads += [
+                t
+                for t in parse_comment_calls(source)
+                if t.get("pending") and (t.get("author"), t.get("created")) not in built
+            ]
 
-def _reinject_pending(comments_dir: Path, pending: list, authors_xml) -> None:
-    """Put carried-over comments back after the mirror, one part per slide."""
-    if not pending:
-        return
-    comments_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = comments_dir / "manifest.json"
-    try:
-        manifest = (
-            json.loads(manifest_path.read_text(encoding="utf-8"))
-            if manifest_path.is_file()
-            else {}
-        )
-    except Exception:
-        manifest = {}
-    manifest.setdefault("slides", {})
-    manifest.setdefault("authors", "authors.xml")
+            try:
+                new_source = patch_comment_region(source, render_comment_calls(threads))
+            except ValueError:
+                failed.append(idx)  # keep the old file; never trade a slide for a comment
+                continue
+            if new_source is not None:
+                path.write_text(new_source, encoding="utf-8")
+                patched.append(idx)
 
-    # The mirror may have removed authors.xml (deck had no comments); the carried
-    # comments still reference their author, so restore it.
-    authors_path = comments_dir / manifest["authors"]
-    if authors_xml and not authors_path.is_file():
-        authors_path.write_text(authors_xml, encoding="utf-8")
-
-    for slide, frag in pending:
-        files = manifest["slides"].get(slide) or []
-        target = comments_dir / files[0] if files else None
-        if target is not None and target.is_file():
-            xml = target.read_text(encoding="utf-8")
-            target.write_text(
-                xml.replace("</p188:cmLst>", frag + "</p188:cmLst>", 1), encoding="utf-8"
+        if not patched and not failed:
+            return "", True
+        note = ""
+        if patched:
+            note = f"comments synced on slide(s) [{', '.join(map(str, patched))}]"
+        if failed:
+            note = (note + "; " if note else "") + (
+                f"comment patch FAILED on slide(s) [{', '.join(map(str, failed))}] — will retry"
             )
-            continue
-        fname = f"claudeComment_{uuid.uuid4().hex[:12]}.xml"
-        (comments_dir / fname).write_text(
-            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-            f'<p188:cmLst xmlns:a="{_NS_A}" xmlns:r="{_NS_R}" xmlns:p188="{_NS_P188}">'
-            f"{frag}</p188:cmLst>",
-            encoding="utf-8",
-        )
-        manifest["slides"][slide] = [fname]
-    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        return note, not failed
+    except Exception as exc:
+        # Report rather than swallow: a silent return here would let the caller
+        # advance the marker and lose the change.
+        return f"comment sync skipped ({type(exc).__name__})", False
 
 
-def _sync_slides(project_dir: Path, state_mod, out_pptx: Path, name: str) -> str:
-    """Regenerate ``slides/*.py`` from the deck when its slides changed."""
-    new_state = state_mod.compute_state(out_pptx)
-    old_state = state_mod.read_state(project_dir)
+def _sync_slides(
+    project_dir: Path, state_mod, out_pptx: Path, name: str, old_state, new_state
+) -> tuple:
+    """Regenerate ``slides/*.py`` from the deck when its slides changed.
 
+    Returns ``(status_line, regenerated_slide_numbers)``; the caller skips the
+    comment pass for regenerated slides, whose files already carry the deck's
+    comments straight from codegen. The caller also owns writing the round-trip
+    marker, so a failed comment patch cannot be recorded as handled.
+    """
     # No baseline yet -> establish one without regenerating (assume in sync).
     if old_state is None:
-        state_mod.write_state(project_dir, new_state)
-        return f"{name}: OK — baseline recorded; code matches the deck. Proceed."
+        return f"{name}: OK — baseline recorded; code matches the deck. Proceed.", set()
 
-    # Fast, authoritative gate: identical per-slide hashes -> nothing to do.
+    # Fast, authoritative gate: identical per-slide hashes -> no slide to rebuild.
+    # Comments are hashed separately, so this is not the end of the story.
     if old_state.get("slides") == new_state.get("slides"):
-        if old_state != new_state:  # size drifted but content identical; refresh.
-            state_mod.write_state(project_dir, new_state)
-        return f"{name}: OK — no changes; code matches the deck. Proceed."
+        return f"{name}: OK — no changes; code matches the deck. Proceed.", set()
 
     changed = state_mod.changed_slides(old_state, new_state)
     total = new_state.get("slide_count", 0)
@@ -288,10 +227,14 @@ def _sync_slides(project_dir: Path, state_mod, out_pptx: Path, name: str) -> str
     from generate_slides import generate_slides
 
     if total != old_total:
-        # Structural change (add/delete/reorder): rebuild the slide files from
-        # scratch so slides/*.py matches the deck exactly, then regenerate all.
+        # Structural change (add/delete/reorder): regenerate every slide so
+        # slides/*.py matches the deck exactly. Only files past the new end are
+        # deleted up front -- generate_slides renames the rest itself, and deleting
+        # them here would discard any unbuilt (pending) comment they carry.
         for stale in (project_dir / "slides").glob("s*.py"):
-            stale.unlink()
+            m = re.match(r"s(\d+)_", stale.name)
+            if m and int(m.group(1)) > total:
+                stale.unlink()
         target_slides = list(range(1, total + 1))
         detail = f"deck changed {old_total} -> {total} slides; regenerated all {total}"
     else:
@@ -302,8 +245,10 @@ def _sync_slides(project_dir: Path, state_mod, out_pptx: Path, name: str) -> str
     with contextlib.redirect_stdout(io.StringIO()):
         generate_slides(out_pptx, project_dir, target_slides)
 
-    state_mod.write_state(project_dir, new_state)
-    return f"{name}: SYNCED — {detail}; code now matches the deck. Proceed."
+    return (
+        f"{name}: SYNCED — {detail}; code now matches the deck. Proceed.",
+        set(target_slides),
+    )
 
 
 def main() -> None:

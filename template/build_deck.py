@@ -95,14 +95,17 @@ output_name = f"{BASE.name}.pptx"
 output_path = out / output_name
 prs.save(output_path)
 shapes.postprocess_svg_fallbacks(output_path)
-# Re-attach any PowerPoint comments preserved by scaffold.py (no-op when the
-# project has no comments/). Runs before the native pass so the injected parts
-# get the same declaration/zip-order normalization as the rest of the package.
-n_comments = comments_lib.inject_comments(output_path, BASE / "comments")
+# Attach the comments the slide files recorded via shapes.add_comment() (no-op
+# when the deck has none). python-pptx cannot write comment parts, so they are
+# grafted on here. Runs before the native pass so the injected parts get the same
+# declaration/zip-order normalization as the rest of the package.
+n_comments = comments_lib.inject_comments(
+    output_path, shapes.collected_comments(), BASE / "lib" / "authors.json"
+)
 shapes.postprocess_powerpoint_native(output_path)
 print(f"Wrote {output_path}")
 if n_comments:
-    print(f"Re-attached {n_comments} preserved comment(s)")
+    print(f"Attached {n_comments} comment(s)")
 
 # Run OOXML validator. Some source decks inherit a misplaced <p:notesMasterIdLst>
 # after <p:sldIdLst>; PowerPoint tolerates that order but the validator flags it.

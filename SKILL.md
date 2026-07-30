@@ -38,11 +38,11 @@ my-deck/
 ├── build_deck.py              # orchestrator: imports slides/ in filename order
 ├── backup/                    # last 10 successful builds for rollback
 ├── assets/                    # media + freeform SVGs extracted from the target
-├── comments/                  # preserved PowerPoint comments (only if the deck has any)
 ├── lib/
 │   ├── design.py              # colors, fonts, layout constants (edit to match deck)
 │   ├── shapes.py              # add_box, add_shape, add_image, add_connector, add_chart, ...
-│   ├── comments.py            # re-attaches preserved comments after each build
+│   ├── authors.json           # comment author identities (only if the deck has comments)
+│   ├── comments.py            # compiles shapes.add_comment() calls into comment parts
 │   ├── roundtrip_state.py     # shared sync-state helper (auto-sync + build_deck)
 │   └── base.pptx              # template shell (masters/layouts/theme, no slides); build input
 ├── slides/
@@ -62,13 +62,14 @@ my-deck/
 
 | Command | What it does |
 |---|---|
-| `scaffold.py` | Create the project structure, copy assets, capture the base deck (`lib/base.pptx`: masters/layouts/theme, no slides), preserve any PowerPoint comments into `comments/`, and auto-detect the footer into `lib/design.py` (`FOOTER_TEXT`). The built deck is named after `<output-dir>`. Does **not** generate slide code or a `pyproject.toml`. |
+| `scaffold.py` | Create the project structure, copy assets, capture the base deck (`lib/base.pptx`: masters/layouts/theme, no slides), capture comment authors into `lib/authors.json`, and auto-detect the footer into `lib/design.py` (`FOOTER_TEXT`). The built deck is named after `<output-dir>`. Does **not** generate slide code or a `pyproject.toml`. |
 | `autosync.py` | **Run this first** on any deck task to fold in PowerPoint edits (see **Auto-sync** below). Detects whether `out/<name>.pptx` changed since the last build/sync and, if a human edited it, regenerates the affected `slides/*.py`. Deck→code only (never rebuilds), mechanical (no TODO review), auto-detects changed slides, and never errors out — a cheap no-op when nothing changed. |
 | `generate_slides.py` | Fully overwrite selected `slides/sNN_*.py` from the target. `--slides` is required (`4` \| `2-5` \| `3,7,9`); there is no `all`. |
 | `sync_slide_numbers.py` | Reserve slots (`--add`) or close gaps (`--delete`) by renaming `slides/s*.py`. Run **before** `generate_slides.py`; only renames/deletes files. Add `--apply` to act (default is a dry run). |
-| `extract_slide.py` | Dump a slide's shapes — position, size, text, fill, font, z-order, `[HIDDEN]`. `--verbose` for detail, `--screenshot` for a PNG, `--json` for machine output. Accepts `all`. |
+| `extract_slide.py` | Dump a slide's shapes — position, size, text, fill, font, z-order, `[HIDDEN]` — plus any **PowerPoint comments** on it (author, date, text, replies, `[resolved]`). `--verbose` for detail, `--screenshot` for a PNG, `--json` for machine output. Accepts `all`. |
 | `extract_notes.py` | Export speaker notes from `slides/*.py` to a Markdown file. |
-| `add_comment.py` | Leave a **Claude-authored** comment on a slide (`--project-dir`, `--slide`, `--text`). Writes into the project's `comments/` store so it re-attaches on the next `build_deck.py`. Use it when your edit is substantial, fixes a perceived error, or addresses an existing comment — see **Annotating your own changes** below. |
+| `add_comment.py` | Leave a **Claude-authored** comment on a slide (`--project-dir`, `--slide`, `--text`). Adds a `shapes.add_comment(...)` call to the slide's file so it attaches on the next `build_deck.py`. Use it when your edit is substantial, fixes a perceived error, or addresses an existing comment — see **Annotating your own changes** below. |
+| `migrate_comments.py` | One-time: move a pre-existing project's `comments/` XML store into its slide files (`--project-dir`, `--apply`). Reads the built deck as the source of truth. Only needed for projects scaffolded before comments moved into `slides/*.py`. |
 | `list_layouts.py` | List layout indices in a deck (for a slide's `LAYOUT` constant). |
 | `detect_project.py` | List existing projects (current dir or one level down) with each one's slides, backups, and output path. Run before a partial update. Returns a `projects` array (`count` 0 → exit 1). |
 | `build_deck.py` | *(inside the project)* Build `slides/` into `out/<name>.pptx`, archiving the prior build to `backup/`. Self-contained and takes no arguments — it uses the bundled `lib/base.pptx` for masters/layouts/theme. On success it stamps `.roundtrip_state.json` so auto-sync never mistakes this build for a human edit. |
@@ -136,7 +137,7 @@ It compares the deck against `.roundtrip_state.json` and, if the user edited it,
 - `autosync: <name>: SYNCED — N slide(s) [..]; code now matches the deck.` → code updated. **Proceed** (no need to inspect the synced slides).
 - `autosync: <name>: SKIPPED — …` → couldn't sync; do what the message says (usually re-scaffold, or the deck is broken).
 
-A status line may end with `(comments mirrored from deck)`: auto-sync also mirrors the deck's **modern comments** back into the `comments/` store (deck → store), so a human reply or deletion made in PowerPoint sticks and the next build no longer resurrects a removed comment. This runs even when no slide changed (a human may edit only comments).
+A status line may end with `(comments synced on slide(s) [..])`: auto-sync also mirrors the deck's **modern comments** back into the affected `slides/*.py` files, so a human reply or deletion made in PowerPoint sticks and the next build no longer resurrects a removed comment. This runs even when no slide changed — comments live in their own part, so a reply leaves every slide hash untouched. Only the fenced comment region of each file is rewritten; hand-written slide code is never touched. `comment patch FAILED on slide(s) [..] — will retry` means a file was left as-is and the marker was not advanced, so the next run tries again.
 
 What auto-sync deliberately does **not** do — handle these yourself:
 
@@ -213,10 +214,11 @@ uv run python <pptx-to-pypptx-dir>/scripts/add_comment.py \
   --text "Corrected data-size figure: BooksCorpus + Wikipedia is ~20-33 GB, not 40 TB (addresses reviewer note)."
 ```
 
-The comment is pinned at slide level and rides the round-trip like any preserved comment. Notes:
+The comment is pinned at slide level and rides the round-trip like any other. Notes:
 
 - It appears in `out/<name>.pptx` only after the next build.
-- It behaves like a **normal** PowerPoint comment: a human reviewer can reply to it or delete it in PowerPoint, and `autosync.py` mirrors that change back into the store on the next deck task (so a deleted comment is not resurrected, and replies are kept).
+- Until then the call carries `pending=True`, which tells the deck→code mirror the comment is unbuilt rather than deleted. The flag clears itself on the first auto-sync after a build; don't hand-edit it.
+- It behaves like a **normal** PowerPoint comment: a human reviewer can reply to it or delete it in PowerPoint, and `autosync.py` mirrors that change back into the slide file on the next deck task (so a deleted comment is not resurrected, and replies are kept).
 
 ## Supported features
 
@@ -236,7 +238,7 @@ The generator and `lib/shapes.py` round-trip all commonly used PowerPoint constr
 - Slide backgrounds (solid and gradient) and speaker notes.
 - Hidden slides — re-emitted as `shapes.set_slide_hidden(slide)`; `extract_slide.py` reports them.
 - Native Office Math (`m:oMath` / `a14:m`) in text runs, preserved as editable equations.
-- Modern threaded comments — captured verbatim at scaffold time and re-attached to the rebuilt slides on every build (author, timestamp, text, and thread replies survive). Comment edits made later in PowerPoint (replies, deletions) are mirrored back into the store by `autosync.py` at the start of a deck task, so they round-trip like slide edits; shape-level comment anchoring may relax to a slide-level pin since rebuilt shape ids differ. Claude can also **add its own** comments via `add_comment.py` (author "Claude") to annotate the changes it makes — see **Annotating your own changes**.
+- Modern threaded comments — emitted into each slide file as `shapes.add_comment(...)` calls, so reviewer feedback is visible right where the slide is edited, and compiled back into real comment parts on every build (author, timestamp, text, thread replies, and resolved state survive). `extract_slide.py` prints them. Comment edits made later in PowerPoint (replies, deletions, resolutions) are mirrored back into the slide files by `autosync.py` at the start of a deck task, so they round-trip like slide edits. Every thread is pinned at **slide level**: shape and text-range anchors reference source-deck shape ids and character offsets that don't survive regeneration, so they are dropped rather than kept as dangling anchors. Claude can also **add its own** comments via `add_comment.py` (author "Claude") to annotate the changes it makes — see **Annotating your own changes**.
 
 Anything truly exotic (custom geometry that can't be vectorized, SmartArt, animations, transitions) becomes a `# TODO` comment in the generated slide file.
 

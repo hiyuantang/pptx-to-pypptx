@@ -23,6 +23,12 @@ from pathlib import Path
 from pptx import Presentation
 
 from helpers.assets import load_media_map, sync_assets
+from helpers.comments import (
+    extract_authors,
+    extract_comments,
+    merge_authors_json,
+    parse_comment_calls,
+)
 from helpers.pptx_utils import count_slides, parse_slide_range
 from helpers.slide_codegen import (
     generate_slide_code,
@@ -58,6 +64,12 @@ def generate_slides(target: Path, project_dir: Path, slides: list[int]):
     # by content hash, then load the mapping from raw media name -> asset name.
     sync_assets(target, project_dir)
     media_names = load_media_map(project_dir)
+
+    # PowerPoint comments become shapes.add_comment() calls in the slide files, so
+    # reviewer feedback is visible where the slide is edited. The author table is
+    # deck-wide and stays in lib/ (see helpers/comments.py).
+    deck_comments = extract_comments(target)
+    merge_authors_json(extract_authors(target), project_dir / "lib")
 
     # Open the target presentation once so we can read each slide's actual
     # layout index from python-pptx's layout collection.
@@ -103,13 +115,27 @@ def generate_slides(target: Path, project_dir: Path, slides: list[int]):
             new_path = slides_dir / new_name
 
             existing = find_existing_slide_file(project_dir, idx)
+
+            # A comment added by add_comment.py but not built yet lives only in the
+            # code. Regenerating this file would drop it, so carry it across (the
+            # deck's own threads always win on a name+timestamp match).
+            threads = list(deck_comments.get(idx) or [])
+            if existing:
+                built = {(t.get("author"), t.get("created")) for t in threads}
+                threads += [
+                    t
+                    for t in parse_comment_calls(existing.read_text(encoding="utf-8"))
+                    if t.get("pending") and (t.get("author"), t.get("created")) not in built
+                ]
+
             if existing and existing != new_path:
                 existing.unlink()
 
             layout_idx = _layout_idx(idx)
             assets_dir = project_dir / "assets"
             body = generate_slide_code(
-                slide_xml, media_names, title, assets_dir=assets_dir, slide_num=idx
+                slide_xml, media_names, title, assets_dir=assets_dir, slide_num=idx,
+                comments=threads,
             )
 
             layout_xml = layout_paths[idx - 1]

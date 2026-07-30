@@ -20,6 +20,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from helpers.comments import extract_comments
 from helpers.pptx_utils import count_slides, parse_slide_range
 from helpers.slide_xml import read_slide_shapes, parse_slide_hidden
 
@@ -116,7 +117,26 @@ def _shape_dict(shape, verbose: bool = False):
     return d
 
 
-def extract_slide(slide_xml: Path, slide_num: int, verbose: bool = False, json_mode: bool = False):
+def _comment_lines(threads: list) -> list:
+    """One indented line per comment thread and reply, oldest first."""
+    lines = []
+    for thread in threads:
+        state = " [resolved]" if thread.get("resolved") else ""
+        text = re.sub(r"\s+", " ", (thread.get("text") or "").strip())
+        lines.append(
+            f"  comment{state} | {thread.get('author', '?')}"
+            f" ({thread.get('created', '')[:10]}): {text}"
+        )
+        for reply in thread.get("replies") or []:
+            r_text = re.sub(r"\s+", " ", (reply.get("text") or "").strip())
+            lines.append(
+                f"    reply | {reply.get('author', '?')}"
+                f" ({reply.get('created', '')[:10]}): {r_text}"
+            )
+    return lines
+
+
+def extract_slide(slide_xml: Path, slide_num: int, verbose: bool = False, json_mode: bool = False, comments: list | None = None):
     if not slide_xml.exists():
         if json_mode:
             return {"slide": slide_num, "error": "Slide not found"}
@@ -126,18 +146,27 @@ def extract_slide(slide_xml: Path, slide_num: int, verbose: bool = False, json_m
     shapes = read_slide_shapes(slide_xml)
     shapes.sort(key=lambda s: (s["y"], s["x"]))
     hidden = parse_slide_hidden(slide_xml)
+    comments = comments or []
     if json_mode:
-        return {
+        out = {
             "slide": slide_num,
             "hidden": hidden,
             "shape_count": len(shapes),
             "shapes": [_shape_dict(s, verbose) for s in shapes],
         }
+        if comments:
+            out["comments"] = comments
+        return out
 
     hidden_note = " [HIDDEN]" if hidden else ""
-    print(f"Slide {slide_num}: {len(shapes)} shape(s){hidden_note}")
+    comment_note = f", {len(comments)} comment(s)" if comments else ""
+    print(f"Slide {slide_num}: {len(shapes)} shape(s){comment_note}{hidden_note}")
     for shape in shapes:
         print(f"  {_format_shape(shape, verbose=verbose)}")
+    # Reviewer feedback is part of what is "on" a slide -- without it here, an
+    # agent editing the slide would never see what a reviewer asked for.
+    for line in _comment_lines(comments):
+        print(line)
     return None
 
 
@@ -225,6 +254,8 @@ def main():
     total = count_slides(pptx_path)
     slides = parse_slide_range(args.slide, total)
 
+    deck_comments = extract_comments(pptx_path)
+
     results = []
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp = Path(tmpdir)
@@ -232,7 +263,10 @@ def main():
             zf.extractall(tmp)
         for slide_num in slides:
             slide_xml = tmp / "ppt" / "slides" / f"slide{slide_num}.xml"
-            result = extract_slide(slide_xml, slide_num, verbose=args.verbose, json_mode=args.json)
+            result = extract_slide(
+                slide_xml, slide_num, verbose=args.verbose, json_mode=args.json,
+                comments=deck_comments.get(slide_num),
+            )
             if args.json:
                 results.append(result)
 

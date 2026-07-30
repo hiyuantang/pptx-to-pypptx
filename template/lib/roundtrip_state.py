@@ -34,7 +34,14 @@ STATE_FILENAME = ".roundtrip_state.json"
 
 # Bump when the hashing scheme changes so a stale baseline is recomputed rather
 # than silently compared against incompatible hashes.
-HASH_SCHEME = "c14n-sha256"
+HASH_SCHEME = "c14n-sha256+cm1"
+
+# Comments live in their own part, so a reply or deletion leaves every slide hash
+# untouched. They are digested separately (see _comment_digest) and autosync uses
+# changed_comment_slides() to patch just the comment region of those slide files.
+_COMMENTS_REL = "http://schemas.microsoft.com/office/2018/10/relationships/comments"
+_P188 = "{http://schemas.microsoft.com/office/powerpoint/2018/8/main}"
+_A_NS = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
 
 
 def _slide_digest(raw: bytes) -> str:
@@ -59,21 +66,92 @@ def _slide_num(name: str) -> int:
     return int(m.group(1)) if m else 0
 
 
+def _text_of(txbody) -> str:
+    """Concatenated text of a ``p188:txBody`` (``None`` -> empty)."""
+    if txbody is None:
+        return ""
+    return "".join(t.text or "" for t in txbody.iter(f"{_A_NS}t"))
+
+
+def _comment_digest(raw: bytes) -> str:
+    """SHA-256 over a comment part's *meaning*, ignoring machine-facing fields.
+
+    Only what a human wrote is hashed -- author, timestamp, resolved state, text,
+    and replies. Thread GUIDs, ``cId`` and ``sldId`` are excluded: they are
+    derived or per-build, so hashing them would report a change on every rebuild
+    and trigger pointless rewrites. Threads are sorted so a cosmetic reorder in
+    PowerPoint is not mistaken for an edit.
+    """
+    try:
+        root = ET.fromstring(raw.decode("utf-8"))
+    except Exception:
+        return hashlib.sha256(raw).hexdigest()
+    entries = []
+    for cm in root.findall(f"{_P188}cm"):
+        replies = [
+            (
+                reply.get("authorId", ""),
+                reply.get("created", ""),
+                _text_of(reply.find(f"{_P188}txBody")),
+            )
+            for reply in cm.findall(f"{_P188}replyLst/{_P188}reply")
+        ]
+        entries.append((
+            cm.get("authorId", ""),
+            cm.get("created", ""),
+            cm.get("status", "") or "",
+            _text_of(cm.find(f"{_P188}txBody")),
+            tuple(replies),
+        ))
+    entries.sort()
+    return hashlib.sha256(repr(entries).encode("utf-8")).hexdigest()
+
+
+def _comment_part_for_slide(zf, slide_name: str):
+    """Resolve a slide's comment part name via its rels, or ``None``."""
+    base = slide_name.rsplit("/", 1)[-1]
+    rels_name = f"ppt/slides/_rels/{base}.rels"
+    try:
+        rels = zf.read(rels_name).decode("utf-8")
+    except KeyError:
+        return None
+    for tag in re.findall(r"<Relationship\b[^>]*/>", rels):
+        attrs = dict(re.findall(r'(\w+)="([^"]*)"', tag))
+        if attrs.get("Type") == _COMMENTS_REL and attrs.get("Target"):
+            target = attrs["Target"].split("/")[-1]
+            return f"ppt/comments/{target}"
+    return None
+
+
 def compute_state(pptx: Path) -> dict:
-    """Return ``{hash, size, slide_count, slides: {slideN.xml: sha256}}`` for a .pptx."""
+    """Return ``{hash, size, slide_count, slides, comments}`` for a .pptx.
+
+    ``slides`` maps ``slideN.xml`` -> canonicalized-XML digest; ``comments`` maps
+    the same keys -> comment-thread digest, present only for slides that have
+    comments.
+    """
     pptx = Path(pptx)
     slides = {}
+    comments = {}
     with zipfile.ZipFile(pptx, "r") as zf:
         for name in zf.namelist():
             if name.startswith("ppt/slides/slide") and name.endswith(".xml"):
                 base = name.rsplit("/", 1)[-1]
                 slides[base] = _slide_digest(zf.read(name))
+                part = _comment_part_for_slide(zf, name)
+                if part:
+                    try:
+                        comments[base] = _comment_digest(zf.read(part))
+                    except KeyError:
+                        pass
     ordered = {k: slides[k] for k in sorted(slides, key=_slide_num)}
+    ordered_comments = {k: comments[k] for k in sorted(comments, key=_slide_num)}
     return {
         "hash": HASH_SCHEME,
         "size": pptx.stat().st_size,
         "slide_count": len(ordered),
         "slides": ordered,
+        "comments": ordered_comments,
     }
 
 
@@ -118,6 +196,30 @@ def changed_slides(old: dict | None, new: dict) -> list[int]:
     if not old:
         return []
     old_hashes = _ordered_hashes(old)
+    if len(old_hashes) != len(new_hashes):
+        return list(range(1, len(new_hashes) + 1))
+    return [i for i, (o, n) in enumerate(zip(old_hashes, new_hashes), 1) if o != n]
+
+
+def _ordered_comment_hashes(state: dict) -> list[str]:
+    """Comment digests in slide order, ``""`` for slides with no comments."""
+    slides = state.get("slides", {})
+    comments = state.get("comments", {})
+    return [comments.get(k, "") for k in sorted(slides, key=_slide_num)]
+
+
+def changed_comment_slides(old: dict | None, new: dict) -> list[int]:
+    """Return the 1-based slide numbers whose *comments* differ between states.
+
+    Comments live in a separate part, so a reply or deletion in PowerPoint leaves
+    the slide digests identical and ``changed_slides`` returns nothing. autosync
+    uses this to patch only the comment region of the affected slide files,
+    leaving hand-written slide code untouched.
+    """
+    if not old:
+        return []
+    new_hashes = _ordered_comment_hashes(new)
+    old_hashes = _ordered_comment_hashes(old)
     if len(old_hashes) != len(new_hashes):
         return list(range(1, len(new_hashes) + 1))
     return [i for i, (o, n) in enumerate(zip(old_hashes, new_hashes), 1) if o != n]

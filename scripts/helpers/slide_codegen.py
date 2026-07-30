@@ -12,6 +12,7 @@ from pathlib import Path
 
 from helpers.slide_xml import read_slide_shapes, parse_background, parse_slide_notes, parse_slide_hidden
 from helpers.slide_model import normalize_element
+from helpers.comments import render_comment_calls
 
 # Chrome constants mirrored from template/lib/design.py (in inches).
 def _map_color(value):
@@ -1293,8 +1294,13 @@ def _connection_plan(shapes):
     return capture, connect_lines
 
 
-def generate_slide_code(slide_xml: Path, media_names: dict, title: str, assets_dir: Path | None = None, slide_num: int | None = None) -> str:
-    """Return the body of an add_slide() function as a code string."""
+def generate_slide_code(slide_xml: Path, media_names: dict, title: str, assets_dir: Path | None = None, slide_num: int | None = None, comments: list | None = None) -> str:
+    """Return the body of an add_slide() function as a code string.
+
+    ``comments`` are the slide's PowerPoint comment threads; they are emitted last
+    as a fenced ``shapes.add_comment(...)`` region so reviewer feedback is visible
+    right where the slide is edited.
+    """
     raw_shapes = read_slide_shapes(slide_xml)
     shapes = [normalize_element(s) for s in raw_shapes]
     shapes.sort(key=lambda s: s.get("z", 0))
@@ -1330,6 +1336,11 @@ def generate_slide_code(slide_xml: Path, media_names: dict, title: str, assets_d
 
     # Re-attach connected connectors after every shape exists (order-independent).
     lines.extend(connect_lines)
+
+    # Comments last: they are data, not drawing, and reading them first would bury
+    # the shapes. The region is emitted unindented; the join below indents it.
+    if comments:
+        lines.append(render_comment_calls(comments, indent=""))
 
     flattened = []
     for item in lines:

@@ -2852,6 +2852,71 @@ def add_notes(slide: "Slide", text: str) -> None:
     tf.text = text
 
 
+# Comments recorded by add_comment(), keyed by slide_id. python-pptx cannot write
+# comment parts, so the helper only records; build_deck.py hands this registry to
+# lib/comments.py, which grafts real p188 parts onto the saved package.
+_COMMENTS: dict = {}
+
+
+def add_comment(
+    slide: "Slide",
+    author: str,
+    created: str,
+    text: str,
+    replies: list | None = None,
+    resolved: bool = False,
+    pending: bool = False,
+    author_id: str | None = None,
+) -> None:
+    """Attach a PowerPoint comment thread to a slide.
+
+    Like ``add_notes``, this draws nothing -- it writes to a part python-pptx
+    owns separately. The thread is pinned at slide level and is a normal
+    PowerPoint comment: reviewers can reply, resolve, or delete it, and
+    ``autosync.py`` mirrors those edits back into this call on the next task.
+
+    Thread GUIDs are derived from ``(author, created)`` at build time, so nothing
+    machine-facing needs to appear at the call site (see ``lib/comments.py``).
+
+    Args:
+        slide: A python-pptx ``Slide``.
+        author: Display name, resolved against ``lib/authors.json``.
+        created: Timestamp, ``YYYY-MM-DDTHH:MM:SS.mmm``.
+        text: Comment body.
+        replies: Optional ``[{'author', 'created', 'text'}]``, in thread order.
+        resolved: ``True`` to mark the thread resolved.
+        pending: Set by ``add_comment.py`` for a comment that is not in the deck
+            yet, so the deck->code mirror does not mistake it for one a human
+            deleted in PowerPoint. Cleared automatically after the next build.
+        author_id: Explicit author GUID. Only needed when two people in the deck
+            share a display name.
+
+    Returns:
+        None.
+    """
+    _COMMENTS.setdefault(slide.slide_id, []).append(
+        {
+            "author": author,
+            "created": created,
+            "text": text,
+            "replies": list(replies or []),
+            "resolved": bool(resolved),
+            "pending": bool(pending),
+            "author_id": author_id,
+        }
+    )
+
+
+def collected_comments() -> dict:
+    """Return ``{slide_id: [thread, ...]}`` recorded so far."""
+    return {sid: list(threads) for sid, threads in _COMMENTS.items()}
+
+
+def reset_comments() -> None:
+    """Drop all recorded comments (so repeated builds in one process are clean)."""
+    _COMMENTS.clear()
+
+
 def set_slide_hidden(slide: "Slide", hidden: bool = True) -> None:
     """Hide or unhide a slide in the presentation.
 
