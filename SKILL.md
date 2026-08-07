@@ -233,7 +233,7 @@ The generator and `lib/shapes.py` round-trip all commonly used PowerPoint constr
 - "Sketch"/hand-drawn line style (`ask:lineSketchStyleProps`): PowerPoint rewrites the shape's geometry into a wavy `custGeom` but stashes the real preset in the sketch extension. That preset is recovered so the shape round-trips as a crisp native preset (rect, arrow, …) with its dashed line intact, rather than a rasterized freeform with broken edges. The decorative hand-drawn wobble is dropped.
 - Tables with per-cell fills, borders, alignment, margins, row/column sizes, and merged cells.
 - True group shapes with group-relative child positioning.
-- Charts (column, bar, line, pie, area, …).
+- Charts — preserved as verbatim chart-part XML when the part is relationship-free (`c:externalData` is stripped; rendering uses cached values), so multi-group charts, per-point colors, and styling survive; otherwise rebuilt from parsed categories/series.
 - Embedded video/movie shapes with poster frames.
 - Slide backgrounds (solid and gradient) and speaker notes.
 - Hidden slides — re-emitted as `shapes.set_slide_hidden(slide)`; `extract_slide.py` reports them.

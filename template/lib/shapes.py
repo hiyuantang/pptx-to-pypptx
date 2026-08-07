@@ -3190,3 +3190,31 @@ def add_raw_xml(slide_or_group, source: str):
     if element.find(f".//{{{A14_NS}}}m") is not None:
         _wrap_math_element(element)
     return _RawShape(top_id)
+
+
+def add_chart_xml(slide: "Slide", asset_name: str, x: float, y: float, w: float, h: float) -> "GraphicFrame":
+    """Place a chart preserved as verbatim chart-part XML (an assets/*.xml file).
+
+    Rebuilding a chart from parsed categories/series loses multi-group charts,
+    per-point colors, and custom styling, so the generator stores the original
+    ``ppt/charts/chartN.xml`` as an asset and this helper swaps it in: a
+    placeholder chart is created for its part/relationship plumbing, then its
+    XML is replaced wholesale. The asset must be relationship-free (the
+    generator strips ``c:externalData`` and falls back to parsed data when any
+    other reference remains).
+    """
+    from lxml import etree
+    from pptx.chart.data import CategoryChartData
+    from pptx.enum.chart import XL_CHART_TYPE
+    from pptx.util import Inches
+
+    data = CategoryChartData()
+    data.categories = ["_"]
+    data.add_series("_", (0,))
+    frame = slide.shapes.add_chart(
+        XL_CHART_TYPE.COLUMN_CLUSTERED,
+        Inches(x), Inches(y), Inches(w), Inches(h), data,
+    )
+    part = frame.chart.part
+    part._element = etree.fromstring((ASSETS / asset_name).read_bytes())
+    return frame

@@ -839,8 +839,21 @@ def _code_for_movie(shape, media_names):
     )
 
 
-def _code_for_chart(shape):
+def _code_for_chart(shape, assets_dir=None):
     x, y, w, h = shape["x"], shape["y"], shape["w"], shape["h"]
+    # Verbatim chart passthrough: rebuilding from parsed data loses multi-group
+    # charts, per-point colors, and styling (and can silently produce an empty
+    # chart). When the parser captured the relationship-free part XML, store it
+    # as an asset and swap it in wholesale at build time.
+    chart_xml = shape.get("chart_xml")
+    if chart_xml and assets_dir:
+        assets_dir = Path(assets_dir)
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        name = f"chart_{hashlib.sha1(chart_xml.encode('utf-8')).hexdigest()[:12]}.xml"
+        asset_path = assets_dir / name
+        if not asset_path.exists():
+            asset_path.write_text(chart_xml, encoding="utf-8")
+        return f"shapes.add_chart_xml(slide, {name!r}, {x:.3f}, {y:.3f}, {w:.3f}, {h:.3f})"
     chart_type = shape.get("chart_type") or "COLUMN_CLUSTERED"
     categories = shape.get("categories", [])
     series = shape.get("series", [])
@@ -1014,7 +1027,7 @@ def _code_for_any(shape, media_names=None, group_var="slide", assets_dir=None, c
     elif shape_type == "movie":
         code = _code_for_movie(shape, media_names)
     elif shape_type == "chart":
-        code = _code_for_chart(shape)
+        code = _code_for_chart(shape, assets_dir=assets_dir)
     elif shape_type in ("line", "arrow") or (shape_type == "shape" and geom_type == "line"):
         code = _code_for_line_or_arrow(shape, x, y, w, h)
     elif shape_type == "connector":

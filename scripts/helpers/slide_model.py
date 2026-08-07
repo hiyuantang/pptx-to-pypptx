@@ -283,7 +283,7 @@ def normalize_element(elem: dict) -> dict:
         out["children"] = [normalize_element(c) for c in elem["children"]]
 
     if elem.get("type") == "chart":
-        for key in ("chart_type", "categories", "series", "title"):
+        for key in ("chart_type", "categories", "series", "title", "chart_xml"):
             if elem.get(key) is not None:
                 out[key] = elem[key]
 
