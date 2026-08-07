@@ -252,7 +252,11 @@ def _slide_parts_by_sld_id(pres: str, pres_rels: str) -> dict:
     out = {}
     for tag in re.findall(r"<p:sldId\b[^>]*/>", pres):
         attrs = dict(re.findall(r'([\w:]+)="([^"]*)"', tag))
-        sldid, rid = attrs.get("id"), attrs.get("r:id")
+        # The relationship attribute is r:id in python-pptx output, but any
+        # ElementTree round-trip rebinds the prefix (e.g. ns0:id). Match the
+        # attribute by local name, whatever prefix its namespace got.
+        sldid = attrs.get("id")
+        rid = next((v for k, v in attrs.items() if k.endswith(":id")), None)
         if not sldid or not rid:
             continue
         target = rid_target.get(rid, "")
