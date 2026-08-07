@@ -1794,6 +1794,37 @@ def parse_chart_xml(chart_path: str) -> dict:
     }
 
 
+def _verbatim_chart_xml(chart_path: str):
+    """The chart part's XML for verbatim rebuild, or ``None`` if unsafe.
+
+    Rebuilding a chart from parsed categories/series loses multi-group charts,
+    per-point colors, and styling (and can silently produce an empty chart), so
+    the part is preserved wholesale when possible. ``c:externalData`` — the link
+    to the editing workbook — is stripped first: rendering uses the cached
+    values, and the reference would dangle in the rebuilt package. If any other
+    relationship attribute remains after that, the chart is not safe to carry
+    verbatim and the parsed-data path is used instead.
+    """
+    if not chart_path or not os.path.exists(chart_path):
+        return None
+    try:
+        with open(chart_path, encoding='utf-8') as fh:
+            xml = fh.read()
+    except OSError:
+        return None
+    xml = re.sub(r'<\w+:externalData\b[^>]*/>', '', xml)
+    xml = re.sub(r'<\w+:externalData\b.*?</\w+:externalData>', '', xml, flags=re.S)
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return None
+    for node in root.iter():
+        for attr in node.attrib:
+            if attr.startswith('{' + _R_NS + '}'):
+                return None
+    return xml
+
+
 def parse_chart_or_diagram(gf, transform, group_path, uri, slide_rels=None, chart_path=None):
     """Parse a chart or diagram graphicFrame."""
     abs_xfrm = combine_transforms(transform, parse_xfrm(gf.find(f'{{{P}}}xfrm')))
@@ -1804,6 +1835,9 @@ def parse_chart_or_diagram(gf, transform, group_path, uri, slide_rels=None, char
                   'title': '', 'categories': [], 'series': [], 'chart_type': None}
         if chart_path:
             result.update(parse_chart_xml(chart_path))
+            chart_xml = _verbatim_chart_xml(chart_path)
+            if chart_xml is not None:
+                result['chart_xml'] = chart_xml
         return result
     elif 'diagram' in uri:
         return {'type': 'diagram', 'name': 'Diagram', 'subtype': 'diagram',
@@ -1822,7 +1856,14 @@ def parse_graphicFrame(gf, transform, group_path, slide_rels=None):
         gd = graphic.find(f'{{{A}}}graphicData')
         if gd is not None:
             uri = gd.get('uri', '')
+            # The relationship lives on the payload element inside graphicData
+            # (e.g. <c:chart r:id="..">), not on graphicData itself.
             r_id = gd.get(f'{{{R}}}id')
+            if r_id is None:
+                for child in gd.iter():
+                    r_id = child.get(f'{{{R}}}id')
+                    if r_id:
+                        break
 
     chart_path = None
     if 'chart' in uri and slide_rels and r_id in slide_rels:
