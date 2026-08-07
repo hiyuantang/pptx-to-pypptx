@@ -168,11 +168,25 @@ def _sync_comments(
             # the code. A blind mirror cannot tell that apart from a comment the
             # human deleted in PowerPoint, so carry pending ones across; the flag
             # clears itself once the deck has the comment (the deck copy wins).
-            built = {(t.get("author"), t.get("created")) for t in threads}
+            # PowerPoint normalizes timestamps on save (e.g. strips a trailing
+            # ".000"), so compare created stamps structurally, not as strings —
+            # otherwise a built pending comment is carried over as a duplicate.
+            def _created_key(value):
+                from datetime import datetime
+                raw = (value or "").rstrip("Z")
+                for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
+                    try:
+                        return datetime.strptime(raw, fmt).isoformat(timespec="milliseconds")
+                    except ValueError:
+                        continue
+                return raw
+
+            built = {(t.get("author"), _created_key(t.get("created"))) for t in threads}
             threads += [
                 t
                 for t in parse_comment_calls(source)
-                if t.get("pending") and (t.get("author"), t.get("created")) not in built
+                if t.get("pending")
+                and (t.get("author"), _created_key(t.get("created"))) not in built
             ]
 
             try:
