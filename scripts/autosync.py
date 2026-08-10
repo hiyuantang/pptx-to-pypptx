@@ -73,6 +73,15 @@ def sync_project(project_dir: Path) -> str:
     if out_pptx is None or not out_pptx.exists():
         return f"{name}: OK — deck not built yet; nothing to sync. Proceed."
 
+    # A PowerPoint owner-lock file means the deck is open there: the on-disk
+    # file is still safe to read, but any unsaved edits are not in it yet, so
+    # the sync may be incomplete. Reading is harmless — flag it so the agent
+    # and user know to save (and NOT to build until the deck is closed).
+    lock = out_pptx.parent / f"~${out_pptx.name}"
+    lock_note = (" ⚠ deck is OPEN in PowerPoint — unsaved edits are not on "
+                 "disk (save to include them) and building now is unsafe"
+                 if lock.exists() else "")
+
     new_state = state_mod.compute_state(out_pptx)
     old_state = state_mod.read_state(project_dir)
 
@@ -98,6 +107,8 @@ def sync_project(project_dir: Path) -> str:
 
     if comment_note:
         status = f"{status} ({comment_note})"
+    if lock_note:
+        status = f"{status}{lock_note}"
     return status
 
 

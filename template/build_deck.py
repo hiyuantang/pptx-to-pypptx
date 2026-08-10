@@ -93,6 +93,23 @@ out = BASE / "out"
 out.mkdir(exist_ok=True)
 output_name = f"{BASE.name}.pptx"
 output_path = out / output_name
+
+# Refuse to overwrite a deck PowerPoint has open: the reviewer's in-memory copy
+# is stale, and their next Save would clobber this build (and the following
+# auto-sync would then mirror the stale deck back into code, silently reverting
+# these changes). PowerPoint marks an open file with an owner-lock file named
+# "~$<name>". Close the deck in PowerPoint (or set PPTX_FORCE_BUILD=1 if the
+# lock is left over from a crash) and rebuild.
+import os
+lock = out / f"~${output_name}"
+if lock.exists() and not os.environ.get("PPTX_FORCE_BUILD"):
+    sys.exit(
+        f"REFUSED: {output_path.name} appears to be open in PowerPoint "
+        f"(lock file {lock.name} exists). Close it there first — an open "
+        f"deck's next Save would overwrite this build. If the lock is stale "
+        f"(PowerPoint crashed), re-run with PPTX_FORCE_BUILD=1."
+    )
+
 prs.save(output_path)
 shapes.postprocess_svg_fallbacks(output_path)
 # Attach the comments the slide files recorded via shapes.add_comment() (no-op
