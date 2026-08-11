@@ -65,6 +65,7 @@ Apply these edits:
 - Change lecturer-centered subjects into concept-centered prose. Replace “I will show” or “let's look at” with constructions such as “This section examines” or “The model uses.”
 - Retain an occasional inclusive “we” when it genuinely guides a derivation or shared observation. Do not mechanically remove every first-person plural.
 - Remove delivery scaffolding: greetings, roadmap chatter, timing remarks, slide directions, rhetorical applause lines, filler, false starts, and repeated punchlines.
+- Remove in-lecture quizzes, polls, knowledge checks, and answer-choice interactions. Do not reproduce their prompts, options, pauses, answer reveals, scoring, or quiz-only visuals. If an interaction introduces substantive teaching content, state that concept or explanation directly; otherwise omit it. Keep ordinary worked questions and examples when their reasoning is itself instructional.
 - Resolve deictic language. Replace vague “this,” “here,” “that one,” or “on the right” with the named idea, object, equation, or figure.
 - Repair obvious spoken slips or transcription errors only when the slide or nearby notes make the intended wording unambiguous. Flag substantive ambiguity instead of guessing.
 - Merge spoken repetition, but preserve the teaching function. A repeated definition may become one definition; a later contrast, consequence, or recap remains.
@@ -107,7 +108,7 @@ Semi-formal explanation with preserved notation, motivation, and detail.
 
 ## Select instructional visuals
 
-Start from all visuals in the lecture, then exclude only those that do not help the learner. Keep diagrams, charts, worked examples, annotated equations, model outputs, meaningful screenshots, and other visuals referenced or explained by the notes. Omit decorative backgrounds, logos, repeated chrome, ornamental photos, navigation, and empty layout elements.
+Start from all visuals in the lecture, then exclude only those that do not help the learner. Keep diagrams, charts, worked examples, annotated equations, model outputs, meaningful screenshots, and other visuals referenced or explained by the notes. Omit decorative backgrounds, logos, repeated chrome, ornamental photos, navigation, empty layout elements, and quiz prompts, answer-choice screens, or answer-reveal states.
 
 Treat adjacent or repeated visuals as a build family and classify the change before selecting assets:
 
@@ -167,7 +168,7 @@ Before delivery:
 
 1. Compare the completed note against the coverage ledger. Account for every substantive point as prose, math, a visual, or a deliberate non-instructional omission.
 2. Confirm the concept order still follows the speaker notes unless a small reordering clearly improves written coherence without changing the teaching logic.
-3. Remove lecturer performance language, unresolved slide references, transcription artifacts, and unsupported additions.
+3. Remove lecturer performance language, in-lecture quiz interactions, unresolved slide references, transcription artifacts, and unsupported additions.
 4. Verify every equation, symbol, dimension, example, and contrast against the slide and speaker notes.
 5. Open every final asset, inspect transparency and legibility, and confirm progressive-build choices match the prose.
 6. Resolve every relative image link and confirm that the Markdown refers only to files that exist in `lecture-notes-assets/`.
