@@ -126,7 +126,8 @@ def normalize_paragraph(p: dict, body_defaults: dict | None = None) -> dict:
         "runs": runs,
     }
     for key in ("algn", "lnSpc", "indent", "marL", "bullet",
-                "bullet_char", "bullet_type", "spaceBefore", "spaceAfter",
+                "bullet_char", "bullet_type", "bullet_start_at",
+                "spaceBefore", "spaceAfter",
                 "bullet_size_pts", "bullet_size_pct", "bullet_font"):
         if p.get(key) is not None:
             out[key] = p[key]
@@ -298,6 +299,5 @@ def normalize_element(elem: dict) -> dict:
 def normalize_slide(elements: list[dict]) -> list[dict]:
     """Normalize all elements on a slide."""
     return [normalize_element(e) for e in elements]
-
 
 

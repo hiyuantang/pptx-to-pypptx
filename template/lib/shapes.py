@@ -809,6 +809,8 @@ def _set_paragraph_bullet(p, bullet):
         elif kind == "autoNum":
             bu = etree.Element(qn("a:buAutoNum"))
             bu.set("type", bullet.get("style", "arabicParenR"))
+            if bullet.get("start_at") is not None:
+                bu.set("startAt", str(int(bullet["start_at"])))
             pPr.append(bu)
         elif kind == "none":
             pPr.append(etree.Element(qn("a:buNone")))
@@ -1459,7 +1461,8 @@ def add_shape(
         space_before: Paragraph spacing before in points.
         space_after: Paragraph spacing after in points.
         bullet: ``'none'``, ``'char'``, ``'autoNum'``, or a dict with ``type``
-            and ``char``/``style``.
+            and ``char``/``style``. Auto-numbered bullets may include
+            ``start_at`` to preserve continued numbering.
         pitch_family: Font pitch family string.
         charset: Font charset string.
         name: Semantic non-visible shape name (e.g. ``'Footer'``, ``'Date'``).
@@ -1687,7 +1690,8 @@ def add_text(
             string ending in ``'pts'`` for point spacing.
         space_before: Paragraph spacing before in points.
         space_after: Paragraph spacing after in points.
-        bullet: ``'none'``, ``'char'``, ``'autoNum'``, or a dict.
+        bullet: ``'none'``, ``'char'``, ``'autoNum'``, or a dict. Auto-numbered
+            bullets may include ``start_at`` to preserve continued numbering.
         name: Semantic shape name.
         slide_number: If set, displays this integer as the slide number.
         **kwargs: Additional arguments forwarded to :func:`add_shape` (e.g.

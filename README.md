@@ -36,7 +36,7 @@ deterministically — while keeping the original untouched as a reference.
   the speaker notes' teaching sequence and linking selected slide visuals from a
   dedicated asset folder. Standalone tools extract notes directly from the
   `.pptx`, preserve embedded image transparency, render composite regions, and
-  validate final Markdown links.
+  validate final Markdown math and asset links.
 
 ## Installation
 
@@ -174,7 +174,7 @@ pptx-to-pypptx/
 │   ├── extract_notes.py     # export speaker notes from PPTX/project to Markdown
 │   ├── extract_lecture_assets.py # extract visual candidates + manifest
 │   ├── prepare_lecture_asset.py  # prepare transparent/cropped PNG assets
-│   ├── validate_lecture_notes.py # validate final Markdown + asset links
+│   ├── validate_lecture_notes.py # validate Markdown math + asset links
 │   ├── sync_slide_numbers.py# reserve/close slide-number slots
 │   ├── list_layouts.py      # list slide layouts in a deck
 │   ├── recapture_base.py    # refresh lib/base.pptx after editing masters/layouts/theme

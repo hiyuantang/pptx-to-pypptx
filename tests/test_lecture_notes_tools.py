@@ -207,6 +207,24 @@ class LectureNotesToolTests(unittest.TestCase):
         self.assertEqual(validation["summary"]["linked_assets"], 1)
         self.assertEqual(validation["summary"]["opaque_rasters"], 0)
 
+    def test_validator_rejects_nonstandard_math_delimiters(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                "# Lecture\n\nInline \\(x\\).\n\n\\[y = 2\\]\n",
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(markdown, assets)
+
+        self.assertIn(
+            "Use $...$ and $$...$$ for Markdown math, not \\(...\\) or \\[...\\]",
+            validation["errors"],
+        )
+
     def test_read_slide_size(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             target = Path(tmpdir) / "lecture.pptx"

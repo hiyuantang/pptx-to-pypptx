@@ -130,6 +130,8 @@ For each selected visual, use the highest-fidelity source available:
 3. **Composite visualization made from slide shapes:** export the logical group or its tight bounds from a scratch copy or asset-only slide, excluding the slide background, title, footer, and unrelated objects. Prefer a transparent background; never alter the source deck for asset extraction.
 4. **Chart, table, equation, or composite that cannot be separated safely:** use a tightly cropped high-resolution render. An opaque neutral background is acceptable when removing it would erase white marks, labels, or other intended content.
 
+Native Office Math can display correctly in PowerPoint while appearing blank in a LibreOffice render when the equation's compatibility fallback is unavailable. Inspect every rendered equation before using it as an asset. If a renderer drops the math, do not deliver the blank callout or capture the migrated deck as a substitute: render the original source with a verified fallback, or preserve the equation as Markdown math and omit the redundant image.
+
 Prepare a source image or a selected slide region as a PNG:
 
 ```bash

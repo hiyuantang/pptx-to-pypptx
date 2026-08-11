@@ -705,7 +705,17 @@ def _parse_para_level_props(lvlPr):
             props[key] = spcPct.get('val')
         spcPts = el.find(f'{{{A}}}spcPts')
         if spcPts is not None:
-            props[key] = f"{spcPts.get('val')}pts"
+            raw_points = spcPts.get('val')
+            if raw_points is not None:
+                # DrawingML stores point spacing in hundredths of a point.
+                # Normalize it here so every downstream consumer sees the
+                # same human-scale value (for example, 3000 -> "30pts").
+                try:
+                    points = int(raw_points) / 100
+                except ValueError:
+                    pass
+                else:
+                    props[key] = f"{points:g}pts"
 
     if lvlPr.find(f'{{{A}}}buNone') is not None:
         props['bullet'] = 'none'
@@ -722,6 +732,9 @@ def _parse_para_level_props(lvlPr):
             typ = buAutoNum.get('type')
             if typ:
                 props['bullet_type'] = typ
+            start_at = buAutoNum.get('startAt')
+            if start_at:
+                props['bullet_start_at'] = int(start_at)
         buBlip = lvlPr.find(f'{{{A}}}buBlip')
         if buBlip is not None:
             # Picture bullets cannot be round-tripped; fall back to a dot.
@@ -796,7 +809,8 @@ def _paragraph_inherited_props(txBody, pPr, placeholder_para_defaults=None):
         # Spacing, indentation, and alignment inherited from layouts/masters
         # often duplicate defaults and can trigger PowerPoint repair dialogs
         # when emitted on non-placeholder shapes.
-        inherited_keys = ('bullet', 'bullet_char', 'bullet_type', 'lnSpc')
+        inherited_keys = ('bullet', 'bullet_char', 'bullet_type',
+                          'bullet_start_at', 'lnSpc')
         for src in (placeholder_para_defaults.get(None), placeholder_para_defaults.get(level)):
             if src:
                 for key in inherited_keys:
@@ -881,7 +895,7 @@ def parse_text_body(txBody, slide_rels=None, placeholder_run_defaults=None, plac
             'marL': para_defaults.get('marL'),
             'bullet': para_defaults.get('bullet'),
         }
-        for extra in ('bullet_char', 'bullet_type', 'bullet_color',
+        for extra in ('bullet_char', 'bullet_type', 'bullet_start_at', 'bullet_color',
                       'bullet_size_pts', 'bullet_size_pct', 'bullet_font'):
             if extra in para_defaults:
                 para[extra] = para_defaults[extra]

@@ -11,6 +11,8 @@ from helpers.lecture_assets import inspect_raster
 
 
 IMAGE_LINK = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+FENCED_CODE = re.compile(r"```.*?```", re.DOTALL)
+NONSTANDARD_MATH_DELIMITER = re.compile(r"\\(?:\(|\)|\[|\])")
 MARKDOWN_MEDIA = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
 
 
@@ -37,6 +39,11 @@ def validate_lecture_notes(markdown_path: Path, assets_dir: Path) -> dict:
     markdown_root = markdown_path.parent.resolve()
     assets_root = assets_dir.resolve()
     text = markdown_path.read_text(encoding="utf-8")
+    prose = FENCED_CODE.sub("", text)
+    if NONSTANDARD_MATH_DELIMITER.search(prose):
+        errors.append(
+            "Use $...$ and $$...$$ for Markdown math, not \\(...\\) or \\[...\\]"
+        )
     matches = list(IMAGE_LINK.finditer(text))
     if not matches:
         warnings.append("No Markdown image links found")

@@ -293,8 +293,13 @@ def _paragraph_props(p):
         bullet = p["bullet"]
         if bullet == "char" and p.get("bullet_char"):
             spec = {"type": "char", "char": p["bullet_char"]}
-        elif bullet == "autoNum" and p.get("bullet_type"):
-            spec = {"type": "autoNum", "style": p["bullet_type"]}
+        elif bullet == "autoNum":
+            spec = {
+                "type": "autoNum",
+                "style": p.get("bullet_type", "arabicParenR"),
+            }
+            if p.get("bullet_start_at") is not None:
+                spec["start_at"] = int(p["bullet_start_at"])
         elif bullet == "blip":
             # Picture bullets can't be emitted from python-pptx; use a dot.
             spec = {"type": "char", "char": "•"}
@@ -332,7 +337,7 @@ def _paragraph_props(p):
         if v is None:
             continue
         if isinstance(v, str) and v.endswith("pts"):
-            props[dst_key] = int(v.replace("pts", "").strip()) / 100
+            props[dst_key] = float(v.replace("pts", "").strip())
     return props
 
 
