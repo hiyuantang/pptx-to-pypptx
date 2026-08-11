@@ -5,6 +5,11 @@ Internal helper imported by the scripts in the parent directory; not run directl
 
 import zipfile
 from pathlib import Path
+from xml.etree import ElementTree as ET
+
+
+P = "http://schemas.openxmlformats.org/presentationml/2006/main"
+EMU_PER_INCH = 914400
 
 
 def count_slides(pptx: Path) -> int:
@@ -14,6 +19,27 @@ def count_slides(pptx: Path) -> int:
             1 for n in zf.namelist()
             if n.startswith("ppt/slides/slide") and n.endswith(".xml")
         )
+
+
+def read_slide_size(pptx: Path) -> tuple[float, float]:
+    """Return the presentation canvas width and height in inches."""
+    with zipfile.ZipFile(pptx, "r") as zf:
+        try:
+            presentation_xml = zf.read("ppt/presentation.xml")
+        except KeyError as exc:
+            raise ValueError("PPTX is missing ppt/presentation.xml") from exc
+    root = ET.fromstring(presentation_xml)
+    slide_size = root.find(f"{{{P}}}sldSz")
+    if slide_size is None:
+        raise ValueError("PPTX presentation has no slide-size declaration")
+    try:
+        width = int(slide_size.get("cx")) / EMU_PER_INCH
+        height = int(slide_size.get("cy")) / EMU_PER_INCH
+    except (TypeError, ValueError) as exc:
+        raise ValueError("PPTX slide-size declaration is invalid") from exc
+    if width <= 0 or height <= 0:
+        raise ValueError("PPTX slide size must be positive")
+    return width, height
 
 
 def write_base_deck(source: Path, dest: Path) -> None:

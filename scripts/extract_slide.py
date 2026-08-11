@@ -13,8 +13,6 @@ Usage:
 import argparse
 import json
 import re
-import shutil
-import subprocess
 import sys
 import tempfile
 import zipfile
@@ -22,6 +20,7 @@ from pathlib import Path
 
 from helpers.comments import extract_comments
 from helpers.pptx_utils import count_slides, parse_slide_range
+from helpers.rendering import RenderError, render_slides
 from helpers.slide_xml import read_slide_shapes, parse_slide_hidden
 
 
@@ -175,52 +174,14 @@ def _render_screenshots(pptx_path: Path, slides: list[int], out_dir: Path, dpi: 
 
     Returns a dict mapping slide number to output PNG path.
     """
-    if not shutil.which("soffice"):
-        print("Error: LibreOffice (soffice) not found; cannot render screenshots", file=sys.stderr)
+    try:
+        rendered = render_slides(pptx_path, slides, out_dir, dpi)
+    except (FileNotFoundError, RenderError, ValueError) as exc:
+        print(f"Error: {exc}; cannot render screenshots", file=sys.stderr)
         sys.exit(1)
-    if not shutil.which("pdftoppm"):
-        print("Error: pdftoppm not found; cannot render screenshots", file=sys.stderr)
-        sys.exit(1)
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    screenshot_paths = {}
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp = Path(tmpdir)
-        # ExportHiddenSlides=true keeps hidden slides in the PDF. Without it
-        # LibreOffice drops them, so PDF page N no longer maps to slide N and
-        # every slide after a hidden one is screenshotted off-by-one (and hidden
-        # slides can't be screenshotted at all).
-        result = subprocess.run(
-            ["soffice", "--headless", "--convert-to",
-             'pdf:impress_pdf_Export:{"ExportHiddenSlides":{"type":"boolean","value":"true"}}',
-             "--outdir", str(tmp), str(pptx_path)],
-            capture_output=True, text=True,
-        )
-        if result.returncode != 0:
-            print(f"LibreOffice conversion failed:\n{result.stderr}", file=sys.stderr)
-            sys.exit(1)
-
-        pdf_files = list(tmp.glob("*.pdf"))
-        if not pdf_files:
-            print("Error: PDF conversion produced no file", file=sys.stderr)
-            sys.exit(1)
-        pdf_path = pdf_files[0]
-
-        for slide_num in slides:
-            prefix = tmp / f"slide_{slide_num}"
-            subprocess.run(
-                ["pdftoppm", "-png", "-f", str(slide_num), "-l", str(slide_num),
-                 "-r", str(dpi), str(pdf_path), str(prefix)],
-                check=True,
-            )
-            rendered = list(tmp.glob(f"slide_{slide_num}-*.png"))
-            if not rendered:
-                print(f"Warning: no PNG rendered for slide {slide_num}", file=sys.stderr)
-                continue
-            dest = out_dir / f"slide_{slide_num}.png"
-            shutil.move(str(rendered[0]), str(dest))
-            screenshot_paths[slide_num] = str(dest)
-            print(f"Screenshot: {dest}")
+    screenshot_paths = {slide: str(path) for slide, path in rendered.items()}
+    for path in screenshot_paths.values():
+        print(f"Screenshot: {path}")
     return screenshot_paths
 
 

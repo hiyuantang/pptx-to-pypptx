@@ -1537,15 +1537,21 @@ def parse_pic(pic, transform, group_path, image_rels=None, slide_rels=None):
         blip = blipFill.find(f'{{{A}}}blip')
         img_info = {}
         if blip is not None:
+            svg_blip = blip.find(
+                f'.//{{http://schemas.microsoft.com/office/drawing/2016/SVG/main}}svgBlip'
+            )
+            svg_r_id = svg_blip.get(f'{{{R}}}embed') if svg_blip is not None else None
+            if image_rels and svg_r_id:
+                svg_path = image_rels.get(svg_r_id)
+                if svg_path:
+                    elem['svgHash'] = md5_file(svg_path)
+                    elem['svgFile'] = os.path.basename(svg_path)
+
             r_id = blip.get(f'{{{R}}}embed')
             # SVG-only pictures have no raster embed on <a:blip>; the SVG is
             # referenced via <asvg:svgBlip r:embed="..."> inside <a:extLst>.
             if not r_id:
-                svg_blip = blip.find(
-                    f'.//{{http://schemas.microsoft.com/office/drawing/2016/SVG/main}}svgBlip'
-                )
-                if svg_blip is not None:
-                    r_id = svg_blip.get(f'{{{R}}}embed')
+                r_id = svg_r_id
             if image_rels and r_id:
                 media_path = image_rels.get(r_id)
                 if media_path:

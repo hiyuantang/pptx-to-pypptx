@@ -1,6 +1,6 @@
 ---
 name: pptx-to-pypptx
-description: "Use when the user wants to migrate, edit, inspect, round-trip, or upgrade a PowerPoint deck through python-pptx code. Triggers on 'migrate pptx to python', 'python-pptx project', 'pptx to python-pptx', 'turn deck into code', 'sync pptx changes to code', 'inspect slide', 'what is on this slide', 'upgrade the pptx-to-pypptx skill', or any request to recreate, inspect, or maintain a .pptx using python-pptx."
+description: "Use when the user wants to migrate, edit, inspect, round-trip, or upgrade a PowerPoint deck through python-pptx code, or turn its speaker notes and slide visuals into learner-facing lecture notes. Triggers on 'migrate pptx to python', 'python-pptx project', 'pptx to python-pptx', 'turn deck into code', 'sync pptx changes to code', 'inspect slide', 'what is on this slide', 'generate lecture notes', 'turn speaker notes into lecture notes', 'lecture notes Markdown', 'extract slide visuals', 'upgrade the pptx-to-pypptx skill', or any request to recreate, inspect, maintain, or derive lecture materials from a .pptx."
 ---
 
 # PPTX ⇄ python-pptx Round-Trip Skill
@@ -13,6 +13,7 @@ Replace `<pptx-to-pypptx-dir>` below with the directory that contains this `SKIL
 
 - **Target & iteration.** The **initial target** is the `.pptx` the user gave you; it is **read-only** — never overwrite, modify, or move it. After the first build the working target becomes **`out/<filename>.pptx`** (unless the user names a different file). Every successful build is archived to `backup/`, so you can edit the `out/` file freely and roll back.
 - **Run the scripts; don't hand-craft XML.** The scripts handle extraction, codegen, and rebuilding. Your job is to pick the right one and act on its reported status. Run them as documented — don't pre-emptively edit, move, rename, or delete files.
+- **Lecture notes are a core output.** For any lecture-note request, read [`references/LECTURE_NOTES.md`](./references/LECTURE_NOTES.md) completely before acting. Follow its close speaker-notes-to-prose transformation, concept-based Markdown structure, instructional-visual selection, `lecture-notes-assets/` contract, and quality gate. Do not treat lecture notes as a generic summary.
 - **Execute deterministic steps decisively — don't overthink them.** These scripts are deterministic and print an explicit status. Run the right one and act on that line; do **not** re-run "to be sure", re-verify its work, or inspect slides unless the status or the user asks. Trust these success signals and move on:
   - `autosync.py` → `OK` (nothing to do — proceed) · `SYNCED` (code updated — proceed) · `SKIPPED` (do what the message says).
   - `build_deck.py` → `Wrote …` followed by `Validator passed …` and `Recorded round-trip sync state …`.
@@ -29,7 +30,8 @@ Replace `<pptx-to-pypptx-dir>` below with the directory that contains this `SKIL
 - The **target** `.pptx` to recreate or keep in sync.
 - Python with `uv`.
 - These packages in the **project-root** environment (add to `pyproject.toml`/`requirements.txt`, then `uv sync` from the project root):
-  - `python-pptx>=1.0.0`, `cairosvg>=2.0`, `pillow-heif>=1.0`
+  - `python-pptx>=1.0.0`, `cairosvg>=2.0`, `pillow>=10.0`, `pillow-heif>=1.0`
+- LibreOffice (`soffice`) and Poppler (`pdftoppm`) only when rendering screenshots or composite lecture assets from slide regions.
 
 ## Project layout this skill produces
 
@@ -50,6 +52,8 @@ my-deck/
 │   └── s02_outline.py
 ├── out/
 │   └── my-deck.pptx
+├── lecture-notes.md          # optional learner-facing notes, created when requested
+├── lecture-notes-assets/     # optional final visuals linked from lecture-notes.md
 └── .roundtrip_state.json      # marks the deck version the code is in sync with (auto-sync)
 ```
 
@@ -67,7 +71,10 @@ my-deck/
 | `generate_slides.py` | Fully overwrite selected `slides/sNN_*.py` from the target. `--slides` is required (`4` \| `2-5` \| `3,7,9`); there is no `all`. |
 | `sync_slide_numbers.py` | Reserve slots (`--add`) or close gaps (`--delete`) by renaming `slides/s*.py`. Run **before** `generate_slides.py`; only renames/deletes files. Add `--apply` to act (default is a dry run). |
 | `extract_slide.py` | Dump a slide's shapes — position, size, text, fill, font, z-order, `[HIDDEN]` — plus any **PowerPoint comments** on it (author, date, text, replies, `[resolved]`). `--verbose` for detail, `--screenshot` for a PNG, `--json` for machine output. Accepts `all`. |
-| `extract_notes.py` | Export speaker notes from `slides/*.py` to a Markdown file. |
+| `extract_notes.py` | Export speaker notes directly from a `.pptx` (`--target`) or from generated `slides/*.py` (`--project-dir`) to a Markdown source file. |
+| `extract_lecture_assets.py` | Extract Markdown-compatible embedded visual candidates from selected slides without flattening existing transparency. Deduplicate them and write a provenance manifest with slide usage, transforms, exact repeats, composite render candidates, and unresolved media. |
+| `prepare_lecture_asset.py` | Prepare one PNG from an extracted raster or a tightly bounded PPTX slide region. Can conservatively remove only a flat, edge-connected background and trim transparent padding; every result still requires visual inspection. |
+| `validate_lecture_notes.py` | Validate final Markdown image links, alt text, local asset containment, file existence, unused assets, and raster transparency. |
 | `add_comment.py` | Leave a **Claude-authored** comment on a slide (`--project-dir`, `--slide`, `--text`). Adds a `shapes.add_comment(...)` call to the slide's file so it attaches on the next `build_deck.py`. Use it when your edit is substantial, fixes a perceived error, or addresses an existing comment — see **Annotating your own changes** below. |
 | `migrate_comments.py` | One-time: move a pre-existing project's `comments/` XML store into its slide files (`--project-dir`, `--apply`). Reads the built deck as the source of truth. Only needed for projects scaffolded before comments moved into `slides/*.py`. |
 | `list_layouts.py` | List layout indices in a deck (for a slide's `LAYOUT` constant). |
@@ -105,6 +112,13 @@ uv run python <pptx-to-pypptx-dir>/scripts/sync_slide_numbers.py \
 # Inspect a slide without a screenshot
 uv run python <pptx-to-pypptx-dir>/scripts/extract_slide.py "<target.pptx>" 7 --verbose
 
+# Extract lecture-note source material directly from a deck
+uv run python <pptx-to-pypptx-dir>/scripts/extract_notes.py \
+  --target "<target.pptx>" --output /tmp/speaker-notes.md
+uv run python <pptx-to-pypptx-dir>/scripts/extract_lecture_assets.py \
+  "<target.pptx>" --slides 1-20 --output-dir /tmp/lecture-candidates \
+  --manifest /tmp/lecture-assets.json
+
 # Leave a concise Claude-authored comment on slide 71 (attaches on next build)
 uv run python <pptx-to-pypptx-dir>/scripts/add_comment.py \
   --project-dir <output-dir> --slide 71 \
@@ -112,6 +126,18 @@ uv run python <pptx-to-pypptx-dir>/scripts/add_comment.py \
 ```
 
 ## Workflow
+
+### Generate lecture notes
+
+Lecture notes are a first-class derivative of the deck, not slide-by-slide speaker-note extraction. Read and follow [`references/LECTURE_NOTES.md`](./references/LECTURE_NOTES.md) in full. It defines how to:
+
+- preserve the speaker notes' teaching sequence and substantive coverage while shifting from lecturer-centered speech to semi-formal, concept-centered prose;
+- organize one coherent Markdown document by concepts rather than slide numbers;
+- select nearly all instructional visuals while collapsing progressive builds to the final state unless an intermediate state has a distinct teaching purpose;
+- preserve or create transparent assets where safe and link them from a sibling `lecture-notes-assets/` folder; and
+- verify content coverage, notation, visual fidelity, transparency, and every relative asset link.
+
+Do not edit, scaffold, or rebuild the deck merely to create lecture notes. If a generated project is the source, run `autosync.py` first, then work directly from its current output. Use the deterministic source-extraction and validation scripts defined in the reference workflow; reserve agent judgment for prose transformation and teaching-purpose visual selection.
 
 ### New project (initial migration)
 

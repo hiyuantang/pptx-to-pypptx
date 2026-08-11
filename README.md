@@ -32,6 +32,11 @@ deterministically — while keeping the original untouched as a reference.
   have to say which slides.
 - **Inspect** any slide's shapes/positions/text (and optionally render a PNG)
   without opening PowerPoint.
+- **Generate lecture notes** as semi-formal learner-facing Markdown, preserving
+  the speaker notes' teaching sequence and linking selected slide visuals from a
+  dedicated asset folder. Standalone tools extract notes directly from the
+  `.pptx`, preserve embedded image transparency, render composite regions, and
+  validate final Markdown links.
 
 ## Installation
 
@@ -67,9 +72,10 @@ tooling changed. (It's a git clone, so `git -C <clone-dir> pull` also works.)
 - Python 3.10+
 - [`uv`](https://docs.astral.sh/uv/) for environment and command running
 - Python packages (the agent installs these into each deck **project**, not this
-  repo): `python-pptx>=1.0.0`, `cairosvg>=2.0`, `pillow-heif>=1.0`
-- Optional: [LibreOffice](https://www.libreoffice.org/) for rendering slides to
-  images.
+  repo): `python-pptx>=1.0.0`, `cairosvg>=2.0`, `pillow>=10.0`,
+  `pillow-heif>=1.0`
+- Optional: [LibreOffice](https://www.libreoffice.org/) and Poppler's
+  `pdftoppm` for rendering slides and composite lecture-note assets to images.
 
 ## Using it
 
@@ -83,6 +89,7 @@ language:
 - *"Add a slide after slide 12 titled 'Next steps.'"*
 - *"Delete slide 7."*
 - *"Put `logo.png` in the top-right corner of the title slide."*
+- *"Turn this lecture's speaker notes and visuals into Markdown lecture notes."*
 - *"Roll back to the previous build."*
 - *"Upgrade the pptx-to-pypptx skill."*
 
@@ -114,6 +121,8 @@ my-deck/
 ├── assets/            # images, video, GIFs, SVGs used by the slides
 ├── out/
 │   └── my-deck.pptx   # the built deck — open, edit, and share this one
+├── lecture-notes.md   # optional learner-facing notes, created when requested
+├── lecture-notes-assets/ # optional visuals linked from the notes
 ├── backup/            # the last 10 builds, auto-saved on every rebuild
 ├── build_deck.py      # generated plumbing
 └── .roundtrip_state.json   # auto-sync marker: which deck version the code matches
@@ -154,6 +163,7 @@ can't be vectorized) is emitted as a `# TODO` comment in the generated slide.
 pptx-to-pypptx/
 ├── SKILL.md                 # skill entry point / full workflow docs
 ├── references/
+│   ├── LECTURE_NOTES.md     # speaker notes + visuals -> Markdown workflow
 │   └── SLIDE_FORMAT.md      # conventions for generated slide files
 ├── scripts/                 # command-line tools (run with uv)
 │   ├── scaffold.py          # create a new project from a target deck
@@ -161,7 +171,10 @@ pptx-to-pypptx/
 │   ├── autosync.py          # auto-sync code when the deck is edited in PowerPoint
 │   ├── detect_project.py    # list existing projects
 │   ├── extract_slide.py     # dump/screenshot a single slide
-│   ├── extract_notes.py     # export speaker notes to Markdown
+│   ├── extract_notes.py     # export speaker notes from PPTX/project to Markdown
+│   ├── extract_lecture_assets.py # extract visual candidates + manifest
+│   ├── prepare_lecture_asset.py  # prepare transparent/cropped PNG assets
+│   ├── validate_lecture_notes.py # validate final Markdown + asset links
 │   ├── sync_slide_numbers.py# reserve/close slide-number slots
 │   ├── list_layouts.py      # list slide layouts in a deck
 │   ├── recapture_base.py    # refresh lib/base.pptx after editing masters/layouts/theme
