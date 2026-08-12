@@ -217,6 +217,8 @@ Additional asset rules:
 
 True alpha is required for diagrams assembled from native shapes, arrows, labels, and callouts. A fully opaque canvas around a native-shape selection is an extraction failure: retry the shape selection or matte render rather than accepting a black, white, or slide-colored rectangle. Inspect edge antialiasing and all labels on both light and dark backgrounds.
 
+Judge contrast from explicit light- and dark-background composites, not from the transparent PNG alone: image viewers may display transparency as black, white, or a checkerboard. Distinguish the transparent exterior from retained diagram fills. White text inside an opaque blue box, for example, keeps the same contrast on either page background and must not be rejected merely because the asset has alpha. If a label instead floats directly over transparency, or sits on a semitransparent source panel whose contrast changes with the page, retry with its contrast-preserving backing shape; omit the visual only when a faithful, legible composite still cannot be produced.
+
 An embedded screenshot, photograph, UI panel, or source image whose background is intrinsic to the visual may remain opaque. Crop it tightly, keep slide chrome out, record the reason in the coverage ledger, and explicitly allowlist it in the strict validator. For other extracted rasters, transparency remains a preference rather than permission to erase intended white marks, formulas, labels, or non-flat backgrounds. The helper removes only flat, edge-connected background pixels; it does not globally key out every white pixel or flatten an existing alpha channel.
 
 ## Finalize the learner-facing Markdown
