@@ -7,6 +7,7 @@ Turn a deck's speaker notes into learner-facing Markdown, then add only the diag
 - [Transform the prose first](#transform-the-prose-first)
 - [Organize the Markdown](#organize-the-markdown)
 - [Select visuals from the edited prose](#select-visuals-from-the-edited-prose)
+- [Audit visual coverage before extraction](#audit-visual-coverage-before-extraction)
 - [Extract and prepare assets](#extract-and-prepare-assets)
 - [Finalize the learner-facing Markdown](#finalize-the-learner-facing-markdown)
 - [Quality gate](#quality-gate)
@@ -109,6 +110,31 @@ Treat adjacent or repeated diagrams as a build family:
 
 Similarity alone is not enough to discard a diagram, but slide count is never a reason to keep one.
 
+## Audit visual coverage before extraction
+
+After the prose pass and initial visual selection, create a scratch-only visual coverage ledger. This is the completeness check that prevents selective extraction from becoming accidental under-illustration. It is not part of the final Markdown.
+
+Review every temporary slide preview and account for:
+
+- each substantive teaching claim whose source contains a process, architecture, model, spatial relationship, annotated result, worked visual example, or application image; and
+- each multi-slide visual build family, using its final complete state plus any genuinely distinct contrast states.
+
+Use one ledger row per claim or visual family:
+
+| Prose section / teaching claim | Source slide(s) or build family | Candidate visual | Disposition | Reason / QA result |
+|---|---|---|---|---|
+| Concept heading and the relationship being taught | Real deck numbers | Diagram, image, or none | `keep`, `omit`, or `retry` | Instructional role, redundancy reason, extraction issue, or final asset name |
+
+Apply these rules:
+
+- `keep` means the visual contributes a relationship or concrete example that prose alone does not communicate as efficiently. Record its semantic filename and intended Markdown placement after extraction.
+- `omit` requires a specific reason such as decorative, quiz-only, ordinary text moved into prose, exact duplicate, or genuinely redundant spatial content. “There are already enough images” is never a reason.
+- `retry` means the visual is instructionally useful but the first extraction is clipped, illegible, opaque when it should be transparent, or otherwise unfaithful. It remains unresolved until repaired or changed to a justified `omit` after reasonable extraction attempts.
+- A prose sentence that merely names the boxes in a pipeline or the stages in a model does not automatically make the source diagram redundant. Preserve a useful visual when the ordering, connection, grouping, direction, highlighting, or label attachment is part of the lesson.
+- A low or high asset count is not evidence of quality. Completeness comes from reviewing all claims and build families, while selectivity comes from the recorded dispositions.
+
+Do not finalize while a ledger row remains `retry`. Keep the ledger in scratch space for final review and delete neither its omission reasons nor its opaque-asset justifications until delivery is accepted.
+
 ## Extract and prepare assets
 
 Extract assets only from the slides selected during the prose pass. Use the highest-fidelity source available.
@@ -156,6 +182,14 @@ uv run python <pptx-to-pypptx-dir>/scripts/prepare_lecture_asset.py \
 
 `--shape-ids` is the deterministic equivalent of selecting those objects in PowerPoint and copying them. It keeps their native PPTX relationships, removes every unselected slide object, covers inherited background/master chrome, renders the same selection once on black and once on white, reconstructs clean alpha from the two mattes, and trims to the resulting artwork. This avoids the colored antialias fringe left by single-color chroma keying. Selecting a group ID keeps the complete group; selecting child IDs keeps only those children and their required group ancestry. Always inspect the result on light and dark backgrounds.
 
+Do not interpret a bad first render as evidence that the source diagram is unnecessary. For a useful diagram that renders poorly:
+
+1. inspect the final complete state in its slide-build family;
+2. inspect the slide's object hierarchy and distinguish top-level group IDs from child IDs;
+3. retry with only the diagram, connectors, labels, and spatial callouts, omitting titles, prose, and chrome;
+4. compare the asset with the source preview at the expected Markdown display width on both light and dark backgrounds; and
+5. keep it as `retry` in the coverage ledger until it is faithful, or record why the source cannot be rendered cleanly and preserve its teaching content in prose or math.
+
 ### Region-render fallback
 
 Use a tightly bounded region only when the visual cannot be selected by shape ID without breaking it:
@@ -181,7 +215,9 @@ Additional asset rules:
 - Avoid duplicate files. Place a reused asset once where it best anchors the explanation.
 - Do not use absolute paths, data URIs, remote asset URLs, or files outside `lecture-notes-assets/` in the final Markdown.
 
-Transparency is a preference, not permission to damage a visual. The helper removes only flat, edge-connected background pixels; it does not globally key out every white pixel or flatten an existing alpha channel.
+True alpha is required for diagrams assembled from native shapes, arrows, labels, and callouts. A fully opaque canvas around a native-shape selection is an extraction failure: retry the shape selection or matte render rather than accepting a black, white, or slide-colored rectangle. Inspect edge antialiasing and all labels on both light and dark backgrounds.
+
+An embedded screenshot, photograph, UI panel, or source image whose background is intrinsic to the visual may remain opaque. Crop it tightly, keep slide chrome out, record the reason in the coverage ledger, and explicitly allowlist it in the strict validator. For other extracted rasters, transparency remains a preference rather than permission to erase intended white marks, formulas, labels, or non-flat backgrounds. The helper removes only flat, edge-connected background pixels; it does not globally key out every white pixel or flatten an existing alpha channel.
 
 ## Finalize the learner-facing Markdown
 
@@ -199,20 +235,23 @@ The finalizer removes marked preview blocks and owned provenance comments. It re
 
 Before delivery:
 
-1. Account for every substantive teaching point as prose, math, a selected visual, or a deliberate non-instructional omission.
+1. Review the completed visual coverage ledger. Account for every substantive teaching point and visual build family as prose, math, a selected visual, or a deliberate non-instructional omission; no row may remain `retry`.
 2. Confirm the concept order still follows the speaker notes unless a small reordering clearly improves written coherence without changing the teaching logic.
 3. Remove lecturer performance language, in-lecture quiz interactions, unresolved slide references, transcription artifacts, and unsupported additions.
 4. Verify every equation, symbol, dimension, example, and contrast against the slide and speaker notes.
 5. Confirm no final asset is a temporary full-slide preview, bullet-list capture, text-only slide, title/divider, or decorative slide image.
-6. Open every final asset. Inspect legibility, transparency on light and dark backgrounds, and whether its callouts are spatially relevant.
+6. Open every final asset. Inspect legibility at expected display width, transparency on light and dark backgrounds, and whether its callouts are spatially relevant. Confirm that no native-shape diagram has an opaque canvas.
 7. Resolve every relative image link and confirm that the Markdown refers only to files that exist in `lecture-notes-assets/`.
 8. Read the Markdown once as a learner. It should be self-contained, semi-formal, and recognizably the same lecture—not a shortened substitute for it.
 
-Run the deterministic link and asset check, then resolve every error and inspect its transparency warnings:
+Run the deterministic link and asset check in strict-transparency mode. Omit `--allow-opaque` when every asset has alpha. Repeat it only for deliberately opaque screenshots, photographs, or intrinsic panels recorded in the coverage ledger:
 
 ```bash
 uv run python <pptx-to-pypptx-dir>/scripts/validate_lecture_notes.py \
-  lecture-notes.md --assets-dir lecture-notes-assets
+  lecture-notes.md --assets-dir lecture-notes-assets \
+  --strict-transparency \
+  --allow-opaque application-screenshot.png \
+  --allow-opaque source-photograph.jpg
 ```
 
-The validator rejects temporary `slide-images/slide_N.png` references so source previews cannot leak into the final notes.
+The validator rejects temporary `slide-images/slide_N.png` references so source previews cannot leak into the final notes. In strict mode it also rejects every opaque raster that is not exactly allowlisted, and rejects stale allowlist entries that no longer identify a linked opaque asset. Resolve every error and warning before delivery. If the only remaining warning is that the document has no image links, the coverage ledger must demonstrate that the source lecture truly has no instructionally useful visual.

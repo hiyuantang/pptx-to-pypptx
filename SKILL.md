@@ -75,7 +75,7 @@ my-deck/
 | `extract_lecture_assets.py` | Extract Markdown-compatible embedded visual candidates from selected slides without flattening existing transparency. Deduplicate them and write a provenance manifest with slide usage, transforms, exact repeats, composite render candidates, and unresolved media. |
 | `prepare_lecture_asset.py` | Prepare one PNG from an extracted raster, a tightly bounded PPTX region, or selected native objects (`--shape-ids`). Shape selection keeps only the requested diagram/arrows/text/callouts and automatically produces a trimmed transparent render. |
 | `finalize_lecture_notes.py` | Remove marked temporary slide previews and internal source-slide provenance from an edited draft. Refuse unedited `# Speaker Notes:` or `## Slide N` structure. |
-| `validate_lecture_notes.py` | Validate the required Markdown math delimiters plus image links, alt text, local asset containment, file existence, unused assets, and raster transparency. |
+| `validate_lecture_notes.py` | Validate the required Markdown math delimiters plus image links, alt text, local asset containment, file existence, unused assets, and raster transparency. `--strict-transparency` rejects opaque rasters unless an intrinsic screenshot, photo, or panel is exactly allowlisted with `--allow-opaque`. |
 | `add_comment.py` | Leave a **Claude-authored** comment on a slide (`--project-dir`, `--slide`, `--text`). Adds a `shapes.add_comment(...)` call to the slide's file so it attaches on the next `build_deck.py`. Use it when your edit is substantial, fixes a perceived error, or addresses an existing comment — see **Annotating your own changes** below. |
 | `migrate_comments.py` | One-time: move a pre-existing project's `comments/` XML store into its slide files (`--project-dir`, `--apply`). Reads the built deck as the source of truth. Only needed for projects scaffolded before comments moved into `slides/*.py`. |
 | `list_layouts.py` | List layout indices in a deck (for a slide's `LAYOUT` constant). |
@@ -131,6 +131,8 @@ uv run python <pptx-to-pypptx-dir>/scripts/prepare_lecture_asset.py \
 
 uv run python <pptx-to-pypptx-dir>/scripts/finalize_lecture_notes.py \
   /tmp/lecture-notes.draft.md --output lecture-notes.md
+uv run python <pptx-to-pypptx-dir>/scripts/validate_lecture_notes.py \
+  lecture-notes.md --assets-dir lecture-notes-assets --strict-transparency
 
 # Leave a concise Claude-authored comment on slide 71 (attaches on next build)
 uv run python <pptx-to-pypptx-dir>/scripts/add_comment.py \
@@ -147,8 +149,9 @@ Lecture notes are a first-class derivative of the deck, not slide-by-slide speak
 - preserve the speaker notes' teaching sequence and substantive coverage while shifting from lecturer-centered speech to semi-formal, concept-centered prose;
 - organize one coherent Markdown document by concepts rather than slide numbers;
 - use temporary slide-numbered previews only to edit and verify the prose, then select diagrams or images from the prose's actual teaching needs rather than from every slide;
+- complete a scratch visual-coverage ledger that accounts for every substantive visual teaching claim and multi-slide build family, with no unresolved extraction retries;
 - blend ordinary bullets and slide text into the written explanation, keeping only spatially meaningful labels and callouts inside visual assets;
-- preserve or create transparent assets where safe and link them from a sibling `lecture-notes-assets/` folder; and
+- require true alpha for native-shape diagrams, explicitly justify and allowlist only intrinsically opaque screenshots, photos, or panels, and link final assets from a sibling `lecture-notes-assets/` folder; and
 - remove source-slide markers before delivery and verify content coverage, notation, visual fidelity, transparency, and every relative asset link.
 
 Do not edit, scaffold, or rebuild the deck merely to create lecture notes. If a generated project is the source, run `autosync.py` first, then work directly from its current output. Use the deterministic source-extraction and validation scripts defined in the reference workflow; reserve agent judgment for prose transformation and teaching-purpose visual selection.

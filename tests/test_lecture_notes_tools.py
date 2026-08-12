@@ -338,6 +338,97 @@ Concept prose.
         self.assertEqual(validation["summary"]["linked_assets"], 1)
         self.assertEqual(validation["summary"]["opaque_rasters"], 0)
 
+    def test_validator_warns_for_opaque_asset_by_default(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            Image.new("RGB", (8, 6), (20, 40, 60)).save(assets / "screenshot.png")
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                "# Lecture\n\n![Application screenshot](lecture-notes-assets/screenshot.png)\n",
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(markdown, assets)
+
+        self.assertEqual(validation["errors"], [])
+        self.assertIn(
+            "Opaque raster asset (inspect whether transparency is appropriate): screenshot.png",
+            validation["warnings"],
+        )
+
+    def test_strict_transparency_rejects_unapproved_opaque_asset(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            Image.new("RGB", (8, 6), (20, 40, 60)).save(assets / "diagram.png")
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                "# Lecture\n\n![Native diagram](lecture-notes-assets/diagram.png)\n",
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(
+                markdown,
+                assets,
+                strict_transparency=True,
+            )
+
+        self.assertTrue(any(
+            "Opaque raster asset is not explicitly allowed in strict mode: diagram.png"
+            in error
+            for error in validation["errors"]
+        ))
+
+    def test_strict_transparency_accepts_exact_opaque_allowlist(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            Image.new("RGB", (8, 6), (20, 40, 60)).save(assets / "screenshot.png")
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                "# Lecture\n\n![Application screenshot](lecture-notes-assets/screenshot.png)\n",
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(
+                markdown,
+                assets,
+                strict_transparency=True,
+                allowed_opaque=["screenshot.png"],
+            )
+
+        self.assertEqual(validation["errors"], [])
+        self.assertEqual(validation["warnings"], [])
+        self.assertEqual(validation["summary"]["allowed_opaque_rasters"], 1)
+
+    def test_strict_transparency_rejects_stale_opaque_allowlist_entry(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            Image.new("RGBA", (8, 6), (20, 40, 60, 0)).save(assets / "diagram.png")
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                "# Lecture\n\n![Native diagram](lecture-notes-assets/diagram.png)\n",
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(
+                markdown,
+                assets,
+                strict_transparency=True,
+                allowed_opaque=["diagram.png"],
+            )
+
+        self.assertIn(
+            "Allowed opaque asset is not a linked opaque raster: diagram.png",
+            validation["errors"],
+        )
+
     def test_validator_rejects_nonstandard_math_delimiters(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)

@@ -4,6 +4,7 @@
 import argparse
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -29,13 +30,45 @@ def _link_target(raw: str) -> str:
     return value.split(maxsplit=1)[0]
 
 
-def validate_lecture_notes(markdown_path: Path, assets_dir: Path) -> dict:
+def _normalize_allowed_opaque(
+    values: Iterable[str],
+    *,
+    assets_dir: Path,
+) -> tuple[set[str], list[str]]:
+    normalized: set[str] = set()
+    errors: list[str] = []
+    for value in values:
+        raw = str(value).strip()
+        candidate = Path(raw)
+        if not raw or candidate.is_absolute() or ".." in candidate.parts:
+            errors.append(
+                f"Allowed opaque asset must be a path relative to {assets_dir.name}/: {value}"
+            )
+            continue
+        normalized.add(candidate.as_posix())
+    return normalized, errors
+
+
+def validate_lecture_notes(
+    markdown_path: Path,
+    assets_dir: Path,
+    *,
+    strict_transparency: bool = False,
+    allowed_opaque: Iterable[str] = (),
+) -> dict:
     markdown_path = Path(markdown_path)
     assets_dir = Path(assets_dir)
     errors: list[str] = []
     warnings: list[str] = []
     linked_files: set[Path] = set()
     opaque_files: set[Path] = set()
+    allowed_opaque_paths, allowlist_errors = _normalize_allowed_opaque(
+        allowed_opaque,
+        assets_dir=assets_dir,
+    )
+    errors.extend(allowlist_errors)
+    if allowed_opaque_paths and not strict_transparency:
+        errors.append("--allow-opaque requires --strict-transparency")
 
     if not markdown_path.exists():
         return {"errors": [f"Markdown file not found: {markdown_path}"], "warnings": [], "summary": {}}
@@ -107,8 +140,28 @@ def validate_lecture_notes(markdown_path: Path, assets_dir: Path) -> dict:
     unused = sorted(asset_files - linked_files)
     for path in unused:
         warnings.append(f"Unreferenced asset: {path.name}")
+    allowed_opaque_used: set[str] = set()
     for path in sorted(opaque_files):
-        warnings.append(f"Opaque raster asset (inspect whether transparency is appropriate): {path.name}")
+        relative_path = path.relative_to(assets_root).as_posix()
+        if strict_transparency:
+            if relative_path in allowed_opaque_paths:
+                allowed_opaque_used.add(relative_path)
+            else:
+                errors.append(
+                    "Opaque raster asset is not explicitly allowed in strict mode: "
+                    f"{relative_path} (use --allow-opaque {relative_path} only for an "
+                    "intrinsic screenshot, photo, or panel)"
+                )
+        else:
+            warnings.append(
+                "Opaque raster asset (inspect whether transparency is appropriate): "
+                f"{path.name}"
+            )
+    if strict_transparency:
+        for relative_path in sorted(allowed_opaque_paths - allowed_opaque_used):
+            errors.append(
+                f"Allowed opaque asset is not a linked opaque raster: {relative_path}"
+            )
 
     return {
         "errors": errors,
@@ -118,6 +171,7 @@ def validate_lecture_notes(markdown_path: Path, assets_dir: Path) -> dict:
             "linked_assets": len(linked_files),
             "unused_assets": len(unused),
             "opaque_rasters": len(opaque_files),
+            "allowed_opaque_rasters": len(allowed_opaque_used),
         },
     }
 
@@ -130,11 +184,31 @@ def main() -> None:
         default=None,
         help="Assets folder (default: sibling lecture-notes-assets/)",
     )
+    parser.add_argument(
+        "--strict-transparency",
+        action="store_true",
+        help="Fail on every opaque raster that is not explicitly allowlisted",
+    )
+    parser.add_argument(
+        "--allow-opaque",
+        action="append",
+        default=[],
+        metavar="ASSET",
+        help=(
+            "Allow one intentional opaque raster, as a path relative to --assets-dir; "
+            "repeat for additional screenshots, photos, or intrinsic panels"
+        ),
+    )
     args = parser.parse_args()
 
     markdown = Path(args.markdown)
     assets_dir = Path(args.assets_dir) if args.assets_dir else markdown.parent / "lecture-notes-assets"
-    result = validate_lecture_notes(markdown, assets_dir)
+    result = validate_lecture_notes(
+        markdown,
+        assets_dir,
+        strict_transparency=args.strict_transparency,
+        allowed_opaque=args.allow_opaque,
+    )
     for message in result["errors"]:
         print(f"ERROR: {message}", file=sys.stderr)
     for message in result["warnings"]:
@@ -145,7 +219,8 @@ def main() -> None:
             f"Checked {summary['image_links']} image link(s): "
             f"{summary['linked_assets']} linked asset(s), "
             f"{summary['unused_assets']} unused, "
-            f"{summary['opaque_rasters']} opaque raster(s)."
+            f"{summary['opaque_rasters']} opaque raster(s), "
+            f"{summary['allowed_opaque_rasters']} explicitly allowed."
         )
     if result["errors"]:
         sys.exit(1)
