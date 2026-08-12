@@ -32,6 +32,19 @@ R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 PKG_R = "http://schemas.openxmlformats.org/package/2006/relationships"
 
 
+def _lecture_markdown(body: str = "") -> str:
+    suffix = f"\n\n{body}" if body else ""
+    return (
+        "# Lecture\n\nOpening paragraph.\n\n"
+        "## Table of Contents\n\n"
+        "- [Core Concept](#core-concept)\n"
+        "  - [Worked Example](#worked-example)\n\n"
+        "## Core Concept\n\nConcept prose.\n\n"
+        "### Worked Example\n\nExample prose."
+        f"{suffix}\n"
+    )
+
+
 def _slide_xml(title: str) -> str:
     return f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:p="{P}" xmlns:a="{A}" xmlns:r="{R}">
@@ -329,7 +342,9 @@ Concept prose.
             prepared.save(assets / "concept.png")
             markdown = root / "lecture-notes.md"
             markdown.write_text(
-                "# Lecture\n\n![Concept diagram](lecture-notes-assets/concept.png)\n",
+                _lecture_markdown(
+                    "![Concept diagram](lecture-notes-assets/concept.png)"
+                ),
                 encoding="utf-8",
             )
             validation = validate_lecture_notes(markdown, assets)
@@ -346,7 +361,9 @@ Concept prose.
             Image.new("RGB", (8, 6), (20, 40, 60)).save(assets / "screenshot.png")
             markdown = root / "lecture-notes.md"
             markdown.write_text(
-                "# Lecture\n\n![Application screenshot](lecture-notes-assets/screenshot.png)\n",
+                _lecture_markdown(
+                    "![Application screenshot](lecture-notes-assets/screenshot.png)"
+                ),
                 encoding="utf-8",
             )
 
@@ -366,7 +383,9 @@ Concept prose.
             Image.new("RGB", (8, 6), (20, 40, 60)).save(assets / "diagram.png")
             markdown = root / "lecture-notes.md"
             markdown.write_text(
-                "# Lecture\n\n![Native diagram](lecture-notes-assets/diagram.png)\n",
+                _lecture_markdown(
+                    "![Native diagram](lecture-notes-assets/diagram.png)"
+                ),
                 encoding="utf-8",
             )
 
@@ -390,7 +409,9 @@ Concept prose.
             Image.new("RGB", (8, 6), (20, 40, 60)).save(assets / "screenshot.png")
             markdown = root / "lecture-notes.md"
             markdown.write_text(
-                "# Lecture\n\n![Application screenshot](lecture-notes-assets/screenshot.png)\n",
+                _lecture_markdown(
+                    "![Application screenshot](lecture-notes-assets/screenshot.png)"
+                ),
                 encoding="utf-8",
             )
 
@@ -413,7 +434,9 @@ Concept prose.
             Image.new("RGBA", (8, 6), (20, 40, 60, 0)).save(assets / "diagram.png")
             markdown = root / "lecture-notes.md"
             markdown.write_text(
-                "# Lecture\n\n![Native diagram](lecture-notes-assets/diagram.png)\n",
+                _lecture_markdown(
+                    "![Native diagram](lecture-notes-assets/diagram.png)"
+                ),
                 encoding="utf-8",
             )
 
@@ -429,6 +452,99 @@ Concept prose.
             validation["errors"],
         )
 
+    def test_validator_accepts_complete_nested_table_of_contents(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(_lecture_markdown(), encoding="utf-8")
+
+            validation = validate_lecture_notes(markdown, assets)
+
+        self.assertEqual(validation["errors"], [])
+        self.assertEqual(validation["summary"]["toc_links"], 2)
+
+    def test_validator_rejects_missing_table_of_contents(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                "# Lecture\n\nOpening paragraph.\n\n## Core Concept\n\nConcept prose.\n",
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(markdown, assets)
+
+        self.assertIn(
+            "Missing required ## Table of Contents after the title/opening paragraph",
+            validation["errors"],
+        )
+
+    def test_validator_rejects_stale_or_incomplete_table_of_contents(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                _lecture_markdown().replace(
+                    "  - [Worked Example](#worked-example)\n",
+                    "  - [Old Example](#old-example)\n",
+                ),
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(markdown, assets)
+
+        self.assertIn(
+            "Table of Contents links must match every ## and ### content heading "
+            "exactly, in document order, using GitHub-style anchors",
+            validation["errors"],
+        )
+
+    def test_validator_rejects_flat_subsection_link(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                _lecture_markdown().replace(
+                    "  - [Worked Example](#worked-example)",
+                    "- [Worked Example](#worked-example)",
+                ),
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(markdown, assets)
+
+        self.assertIn(
+            "Nest ### subsection links under their ## section links",
+            validation["errors"],
+        )
+
+    def test_validator_uses_github_style_heading_anchors(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                "# Lecture\n\nOpening paragraph.\n\n"
+                "## Table of Contents\n\n"
+                "- [Pre-train–Then–Fine-tune](#pre-trainthenfine-tune)\n\n"
+                "## Pre-train–Then–Fine-tune\n\nConcept prose.\n",
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(markdown, assets)
+
+        self.assertEqual(validation["errors"], [])
+        self.assertEqual(validation["summary"]["toc_links"], 1)
+
     def test_validator_rejects_nonstandard_math_delimiters(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
@@ -436,7 +552,7 @@ Concept prose.
             assets.mkdir()
             markdown = root / "lecture-notes.md"
             markdown.write_text(
-                "# Lecture\n\nInline \\(x\\).\n\n\\[y = 2\\]\n",
+                _lecture_markdown("Inline \\(x\\).\n\n\\[y = 2\\]"),
                 encoding="utf-8",
             )
 
@@ -455,7 +571,9 @@ Concept prose.
             Image.new("RGBA", (4, 4), (0, 0, 0, 0)).save(assets / "slide_2.png")
             markdown = root / "lecture-notes.md"
             markdown.write_text(
-                "# Lecture\n\n![Slide reference](lecture-notes-assets/slide_2.png)\n",
+                _lecture_markdown(
+                    "![Slide reference](lecture-notes-assets/slide_2.png)"
+                ),
                 encoding="utf-8",
             )
 

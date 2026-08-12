@@ -70,6 +70,7 @@ The transformation should normally stay close in length and concept coverage. Co
 - Replace the `# Speaker Notes: ...` source title with the lecture title as the single `#` heading.
 - Replace the temporary `## Slide N: ...` structure with concept-based `##` and, when useful, `###` headings. Do not expose slide numbers as learner-facing structure.
 - Open with a short orienting paragraph only when the notes provide that orientation.
+- Add `## Table of Contents` immediately after the title's opening paragraph and before the first content section. Use a nested Markdown link list: include every learner-facing `##` section in document order and indent each `###` subsection beneath its parent. Link to the renderer's GitHub-style heading fragment, preserve the visible heading text exactly, and exclude the title and the Table of Contents heading itself. Rebuild the list after any heading edit; do not leave stale, missing, or reordered anchors.
 - Keep paragraphs cohesive and moderately short. Let bullets be part of the written explanation, not visual assets.
 - Write inline math as `$...$` and display math as `$$...$$`. Preserve variable names, subscripts, hats, Greek symbols, and matrix dimensions exactly.
 - Introduce each selected visual in the prose and place it immediately after the passage it supports. Do not append an unexplained image gallery.
@@ -244,7 +245,8 @@ Before delivery:
 5. Confirm no final asset is a temporary full-slide preview, bullet-list capture, text-only slide, title/divider, or decorative slide image.
 6. Open every final asset. Inspect legibility at expected display width, transparency on light and dark backgrounds, and whether its callouts are spatially relevant. Confirm that no native-shape diagram has an opaque canvas.
 7. Resolve every relative image link and confirm that the Markdown refers only to files that exist in `lecture-notes-assets/`.
-8. Read the Markdown once as a learner. It should be self-contained, semi-formal, and recognizably the same lecture—not a shortened substitute for it.
+8. Click or deterministically verify every Table of Contents entry. Confirm it matches one `##` or `###` content heading, uses the correct generated anchor, preserves document order, and nests subsections beneath their parent section.
+9. Read the Markdown once as a learner. It should be self-contained, semi-formal, and recognizably the same lecture—not a shortened substitute for it.
 
 Run the deterministic link and asset check in strict-transparency mode. Omit `--allow-opaque` when every asset has alpha. Repeat it only for deliberately opaque screenshots, photographs, or intrinsic panels recorded in the coverage ledger:
 
