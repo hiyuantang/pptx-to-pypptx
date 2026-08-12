@@ -4,6 +4,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 from PIL import Image
 
@@ -13,7 +14,13 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from extract_lecture_assets import extract_lecture_assets
 from extract_notes import generate_target_markdown
-from helpers.lecture_assets import remove_edge_background, trim_transparent
+from finalize_lecture_notes import finalize_markdown
+from helpers.lecture_assets import (
+    recover_alpha_from_mattes,
+    remove_edge_background,
+    trim_transparent,
+)
+from helpers.lecture_shapes import isolate_slide_shapes, parse_shape_ids
 from helpers.pptx_utils import read_slide_size
 from prepare_lecture_asset import prepare_asset
 from validate_lecture_notes import validate_lecture_notes
@@ -47,6 +54,21 @@ def _slide_xml(title: str) -> str:
         <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
       </p:spPr>
     </p:pic>
+    <p:grpSp>
+      <p:nvGrpSpPr><p:cNvPr id="4" name="Diagram Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
+      <p:grpSpPr><a:xfrm>
+        <a:off x="3657600" y="1828800"/><a:ext cx="1828800" cy="914400"/>
+        <a:chOff x="0" y="0"/><a:chExt cx="1828800" cy="914400"/>
+      </a:xfrm></p:grpSpPr>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="5" name="Diagram Box"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm></p:spPr>
+      </p:sp>
+      <p:sp>
+        <p:nvSpPr><p:cNvPr id="6" name="Unselected Callout"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+        <p:spPr><a:xfrm><a:off x="914400" y="0"/><a:ext cx="914400" cy="914400"/></a:xfrm></p:spPr>
+      </p:sp>
+    </p:grpSp>
   </p:spTree></p:cSld>
 </p:sld>'''
 
@@ -113,11 +135,102 @@ class LectureNotesToolTests(unittest.TestCase):
             markdown = generate_target_markdown(target)
 
         self.assertIn("# Speaker Notes: lecture", markdown)
+        self.assertIn("<!-- lecture-source-slide: 1 -->", markdown)
         self.assertIn("## Slide 1: First Topic", markdown)
         self.assertIn("First paragraph.\nSecond paragraph.", markdown)
         self.assertIn("## Slide 2: Second Topic", markdown)
         self.assertIn("_No speaker notes._", markdown)
         self.assertNotIn("\n1\n", markdown)
+
+    def test_extract_notes_links_temporary_previews_by_actual_slide_number(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "lecture.pptx"
+            make_fixture_pptx(target)
+            markdown = generate_target_markdown(
+                target,
+                selected_slides=[2],
+                preview_paths={2: "slide-images/slide_2.png"},
+            )
+
+        self.assertNotIn("## Slide 1:", markdown)
+        self.assertIn("<!-- lecture-source-slide: 2 -->", markdown)
+        self.assertIn("## Slide 2: Second Topic", markdown)
+        self.assertIn("(slide-images/slide_2.png)", markdown)
+        self.assertIn("<!-- lecture-source-preview:start -->", markdown)
+
+    def test_finalize_removes_preview_and_provenance_markers(self):
+        draft = """# Lecture title
+
+<!-- source-slides: 4-6 -->
+## Core concept
+
+<!-- lecture-source-preview:start -->
+![Temporary full-slide reference for slide 4 — not a final lecture-note asset](slide-images/slide_4.png)
+<!-- lecture-source-preview:end -->
+
+Concept prose.
+"""
+
+        finalized, stats = finalize_markdown(draft)
+
+        self.assertEqual(finalized, "# Lecture title\n\n## Core concept\n\nConcept prose.\n")
+        self.assertEqual(stats["preview_blocks_removed"], 1)
+        self.assertEqual(stats["provenance_markers_removed"], 1)
+
+    def test_finalize_rejects_unedited_slide_structure(self):
+        draft = "# Lecture title\n\n## Slide 4: Core concept\n\nSpeaker notes.\n"
+
+        with self.assertRaisesRegex(ValueError, "slide-number headings"):
+            finalize_markdown(draft)
+
+    def test_isolate_slide_shapes_keeps_only_requested_object_and_background(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            target = root / "lecture.pptx"
+            isolated = root / "isolated.pptx"
+            make_fixture_pptx(target)
+
+            result = isolate_slide_shapes(target, 1, [3], isolated)
+
+            with zipfile.ZipFile(isolated, "r") as archive:
+                slide_xml = ET.fromstring(archive.read("ppt/slides/slide1.xml"))
+            identities = {
+                int(node.get("id")): node.get("name")
+                for node in slide_xml.findall(f".//{{{P}}}cNvPr")
+            }
+
+        self.assertEqual(result["shape_ids"], [3])
+        self.assertIn(3, identities)
+        self.assertEqual(identities[3], "Picture 3")
+        self.assertNotIn(2, identities)
+        self.assertIn("Lecture asset temporary background", identities.values())
+
+    def test_shape_id_parser_deduplicates_and_validates(self):
+        self.assertEqual(parse_shape_ids("7, 3,7"), [7, 3])
+        with self.assertRaisesRegex(ValueError, "positive"):
+            parse_shape_ids("0")
+
+    def test_isolate_selected_group_child_prunes_its_siblings(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            target = root / "lecture.pptx"
+            isolated = root / "isolated-child.pptx"
+            make_fixture_pptx(target)
+
+            isolate_slide_shapes(target, 1, [5], isolated)
+
+            with zipfile.ZipFile(isolated, "r") as archive:
+                slide_xml = ET.fromstring(archive.read("ppt/slides/slide1.xml"))
+            identities = {
+                int(node.get("id")): node.get("name")
+                for node in slide_xml.findall(f".//{{{P}}}cNvPr")
+            }
+
+        self.assertIn(4, identities)
+        self.assertEqual(identities[5], "Diagram Box")
+        self.assertNotIn(6, identities)
+        self.assertNotIn(2, identities)
+        self.assertNotIn(3, identities)
 
     def test_extract_assets_preserves_alpha_and_deduplicates_usage(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -178,6 +291,24 @@ class LectureNotesToolTests(unittest.TestCase):
         self.assertEqual(result.size, (5, 5))
         self.assertEqual(result.getpixel((2, 2)), (20, 40, 60, 128))
 
+    def test_two_matte_recovery_preserves_antialiased_color_and_alpha(self):
+        source = Image.new("RGBA", (3, 1), (0, 0, 0, 0))
+        source.putpixel((1, 0), (60, 180, 120, 128))
+        source.putpixel((2, 0), (10, 20, 30, 255))
+        dark = Image.new("RGBA", source.size, (0, 0, 0, 255))
+        light = Image.new("RGBA", source.size, (255, 255, 255, 255))
+        dark.alpha_composite(source)
+        light.alpha_composite(source)
+
+        recovered = recover_alpha_from_mattes(dark, light)
+
+        self.assertEqual(recovered.getpixel((0, 0))[3], 0)
+        semitransparent = recovered.getpixel((1, 0))
+        self.assertTrue(all(abs(actual - expected) <= 2 for actual, expected in zip(
+            semitransparent, (60, 180, 120, 128)
+        )))
+        self.assertEqual(recovered.getpixel((2, 0)), (10, 20, 30, 255))
+
     def test_prepare_and_validate_transparent_asset(self):
         image = Image.new("RGBA", (9, 9), (255, 255, 255, 255))
         image.putpixel((4, 4), (0, 0, 0, 255))
@@ -222,6 +353,49 @@ class LectureNotesToolTests(unittest.TestCase):
 
         self.assertIn(
             "Use $...$ and $$...$$ for Markdown math, not \\(...\\) or \\[...\\]",
+            validation["errors"],
+        )
+
+    def test_validator_rejects_temporary_full_slide_reference(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            Image.new("RGBA", (4, 4), (0, 0, 0, 0)).save(assets / "slide_2.png")
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                "# Lecture\n\n![Slide reference](lecture-notes-assets/slide_2.png)\n",
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(markdown, assets)
+
+        self.assertIn(
+            "Temporary full-slide reference leaked into final lecture notes: "
+            "lecture-notes-assets/slide_2.png",
+            validation["errors"],
+        )
+
+    def test_validator_rejects_source_slide_structure_and_provenance(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                "# Speaker Notes: Lecture\n\n<!-- source-slides: 2-3 -->\n"
+                "## Slide 2: Concept\n\nDraft prose.\n",
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(markdown, assets)
+
+        self.assertIn(
+            "Source-slide provenance remains; run finalize_lecture_notes.py",
+            validation["errors"],
+        )
+        self.assertIn(
+            "Slide-by-slide source structure remains; organize the final notes by concept",
             validation["errors"],
         )
 

@@ -70,10 +70,11 @@ my-deck/
 | `autosync.py` | **Run this first** on any deck task to fold in PowerPoint edits (see **Auto-sync** below). Detects whether `out/<name>.pptx` changed since the last build/sync and, if a human edited it, regenerates the affected `slides/*.py`. Deck→code only (never rebuilds), mechanical (no TODO review), auto-detects changed slides, and never errors out — a cheap no-op when nothing changed. |
 | `generate_slides.py` | Fully overwrite selected `slides/sNN_*.py` from the target. `--slides` is required (`4` \| `2-5` \| `3,7,9`); there is no `all`. |
 | `sync_slide_numbers.py` | Reserve slots (`--add`) or close gaps (`--delete`) by renaming `slides/s*.py`. Run **before** `generate_slides.py`; only renames/deletes files. Add `--apply` to act (default is a dry run). |
-| `extract_slide.py` | Dump a slide's shapes — position, size, text, fill, font, z-order, `[HIDDEN]` — plus any **PowerPoint comments** on it (author, date, text, replies, `[resolved]`). `--verbose` for detail, `--screenshot` for a PNG, `--json` for machine output. Accepts `all`. |
-| `extract_notes.py` | Export speaker notes directly from a `.pptx` (`--target`) or from generated `slides/*.py` (`--project-dir`) to a Markdown source file. |
+| `extract_slide.py` | Dump a slide's shape IDs, names, hierarchy, position, size, text, fill, font, z-order, and `[HIDDEN]` state, plus any **PowerPoint comments**. `--verbose` for detail, `--screenshot` for a PNG, `--json` for machine output. Accepts `all`. |
+| `extract_notes.py` | Export slide-numbered speaker notes directly from a `.pptx` (`--target`) or generated `slides/*.py` (`--project-dir`). With `--slide-images-dir`, render and link a temporary full-slide reference for each selected slide. |
 | `extract_lecture_assets.py` | Extract Markdown-compatible embedded visual candidates from selected slides without flattening existing transparency. Deduplicate them and write a provenance manifest with slide usage, transforms, exact repeats, composite render candidates, and unresolved media. |
-| `prepare_lecture_asset.py` | Prepare one PNG from an extracted raster or a tightly bounded PPTX slide region. Can conservatively remove only a flat, edge-connected background and trim transparent padding; every result still requires visual inspection. |
+| `prepare_lecture_asset.py` | Prepare one PNG from an extracted raster, a tightly bounded PPTX region, or selected native objects (`--shape-ids`). Shape selection keeps only the requested diagram/arrows/text/callouts and automatically produces a trimmed transparent render. |
+| `finalize_lecture_notes.py` | Remove marked temporary slide previews and internal source-slide provenance from an edited draft. Refuse unedited `# Speaker Notes:` or `## Slide N` structure. |
 | `validate_lecture_notes.py` | Validate the required Markdown math delimiters plus image links, alt text, local asset containment, file existence, unused assets, and raster transparency. |
 | `add_comment.py` | Leave a **Claude-authored** comment on a slide (`--project-dir`, `--slide`, `--text`). Adds a `shapes.add_comment(...)` call to the slide's file so it attaches on the next `build_deck.py`. Use it when your edit is substantial, fixes a perceived error, or addresses an existing comment — see **Annotating your own changes** below. |
 | `migrate_comments.py` | One-time: move a pre-existing project's `comments/` XML store into its slide files (`--project-dir`, `--apply`). Reads the built deck as the source of truth. Only needed for projects scaffolded before comments moved into `slides/*.py`. |
@@ -114,10 +115,22 @@ uv run python <pptx-to-pypptx-dir>/scripts/extract_slide.py "<target.pptx>" 7 --
 
 # Extract lecture-note source material directly from a deck
 uv run python <pptx-to-pypptx-dir>/scripts/extract_notes.py \
-  --target "<target.pptx>" --output /tmp/speaker-notes.md
+  --target "<target.pptx>" --slides 1-20 \
+  --output /tmp/lecture-source/speaker-notes.md \
+  --slide-images-dir /tmp/lecture-source/slide-images
 uv run python <pptx-to-pypptx-dir>/scripts/extract_lecture_assets.py \
   "<target.pptx>" --slides 1-20 --output-dir /tmp/lecture-candidates \
   --manifest /tmp/lecture-assets.json
+
+# Export a diagram assembled from native shapes, arrows, text, and callouts.
+uv run python <pptx-to-pypptx-dir>/scripts/extract_slide.py \
+  "<target.pptx>" 12 --json --verbose
+uv run python <pptx-to-pypptx-dir>/scripts/prepare_lecture_asset.py \
+  --target "<target.pptx>" --slide 12 --shape-ids 7,9,10,12 \
+  --output lecture-notes-assets/model-flow.png --dpi 300 --padding 20
+
+uv run python <pptx-to-pypptx-dir>/scripts/finalize_lecture_notes.py \
+  /tmp/lecture-notes.draft.md --output lecture-notes.md
 
 # Leave a concise Claude-authored comment on slide 71 (attaches on next build)
 uv run python <pptx-to-pypptx-dir>/scripts/add_comment.py \
@@ -133,9 +146,10 @@ Lecture notes are a first-class derivative of the deck, not slide-by-slide speak
 
 - preserve the speaker notes' teaching sequence and substantive coverage while shifting from lecturer-centered speech to semi-formal, concept-centered prose;
 - organize one coherent Markdown document by concepts rather than slide numbers;
-- select nearly all instructional visuals while collapsing progressive builds to the final state unless an intermediate state has a distinct teaching purpose;
+- use temporary slide-numbered previews only to edit and verify the prose, then select diagrams or images from the prose's actual teaching needs rather than from every slide;
+- blend ordinary bullets and slide text into the written explanation, keeping only spatially meaningful labels and callouts inside visual assets;
 - preserve or create transparent assets where safe and link them from a sibling `lecture-notes-assets/` folder; and
-- verify content coverage, notation, visual fidelity, transparency, and every relative asset link.
+- remove source-slide markers before delivery and verify content coverage, notation, visual fidelity, transparency, and every relative asset link.
 
 Do not edit, scaffold, or rebuild the deck merely to create lecture notes. If a generated project is the source, run `autosync.py` first, then work directly from its current output. Use the deterministic source-extraction and validation scripts defined in the reference workflow; reserve agent judgment for prose transformation and teaching-purpose visual selection.
 

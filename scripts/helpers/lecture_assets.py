@@ -167,6 +167,62 @@ def remove_edge_background(
     return rgba, stats
 
 
+def recover_alpha_from_mattes(dark: Image.Image, light: Image.Image) -> Image.Image:
+    """Recover transparent artwork from matching black- and white-matte renders.
+
+    A single chroma-key render leaves colored fringes on antialiased PowerPoint
+    shapes. Two renders provide enough information to reconstruct both alpha and
+    the foreground color: dark = alpha * foreground, while
+    light = dark + (1 - alpha) * 255.
+    """
+    if dark.size != light.size:
+        raise ValueError("Black- and white-matte renders must have matching dimensions")
+
+    dark_rgb = dark.convert("RGB")
+    light_rgb = light.convert("RGB")
+    result = Image.new("RGBA", dark.size)
+    # Work in strips so a 300-DPI widescreen slide does not allocate a second
+    # full-frame Python tuple list (millions of pixels) while reconstructing.
+    strip_height = 64
+    for top in range(0, dark.height, strip_height):
+        bottom = min(dark.height, top + strip_height)
+        dark_strip = dark_rgb.crop((0, top, dark.width, bottom))
+        light_strip = light_rgb.crop((0, top, light.width, bottom))
+        dark_data = (
+            dark_strip.get_flattened_data()
+            if hasattr(dark_strip, "get_flattened_data")
+            else dark_strip.getdata()
+        )
+        light_data = (
+            light_strip.get_flattened_data()
+            if hasattr(light_strip, "get_flattened_data")
+            else light_strip.getdata()
+        )
+        recovered = []
+        for dark_pixel, light_pixel in zip(dark_data, light_data):
+            delta_red = max(0, min(255, light_pixel[0] - dark_pixel[0]))
+            delta_green = max(0, min(255, light_pixel[1] - dark_pixel[1]))
+            delta_blue = max(0, min(255, light_pixel[2] - dark_pixel[2]))
+            median_delta = (
+                delta_red + delta_green + delta_blue
+                - min(delta_red, delta_green, delta_blue)
+                - max(delta_red, delta_green, delta_blue)
+            )
+            alpha = 255 - median_delta
+            if alpha <= 0:
+                recovered.append((0, 0, 0, 0))
+                continue
+            foreground = tuple(
+                max(0, min(255, round(channel * 255 / alpha)))
+                for channel in dark_pixel
+            )
+            recovered.append((*foreground, alpha))
+        recovered_strip = Image.new("RGBA", dark_strip.size)
+        recovered_strip.putdata(recovered)
+        result.paste(recovered_strip, (0, top))
+    return result
+
+
 def trim_transparent(image: Image.Image, padding: int = 0) -> Image.Image:
     """Crop to non-transparent content and add transparent pixel padding."""
     if padding < 0:

@@ -45,7 +45,13 @@ def _font_summary(shape):
 
 def _format_shape(shape, verbose=False):
     text = re.sub(r"\s+", " ", (shape.get("text") or "").strip())
-    line = f"{shape['type']:12s} x={shape['x']:.3f}, y={shape['y']:.3f}, w={shape['w']:.3f}, h={shape['h']:.3f}"
+    identity = f"id={shape.get('id', '?')}"
+    if shape.get("name"):
+        identity += f" name={shape['name']!r}"
+    line = (
+        f"{shape['type']:12s} {identity} | x={shape['x']:.3f}, y={shape['y']:.3f}, "
+        f"w={shape['w']:.3f}, h={shape['h']:.3f}"
+    )
     if text:
         line += f" | {text[:200]}"
     if not verbose:
@@ -87,6 +93,8 @@ def _format_shape(shape, verbose=False):
 
 def _shape_dict(shape, verbose: bool = False):
     d = {
+        "id": shape.get("id"),
+        "name": shape.get("name"),
         "type": shape.get("type"),
         "x": shape.get("x"),
         "y": shape.get("y"),
@@ -112,7 +120,9 @@ def _shape_dict(shape, verbose: bool = False):
             "rows": shape.get("rows") if shape.get("type") == "table" else None,
             "cols": shape.get("cols") if shape.get("type") == "table" else None,
         })
-        d = {k: v for k, v in d.items() if v is not None}
+    if shape.get("children"):
+        d["children"] = [_shape_dict(child, verbose) for child in shape["children"]]
+    d = {k: v for k, v in d.items() if v is not None}
     return d
 
 

@@ -1,62 +1,51 @@
 # Lecture Notes
 
-Turn a deck's speaker notes and instructional visuals into learner-facing Markdown. Treat this as a close editorial transformation, not a summary and not a transcript dump.
+Turn a deck's speaker notes into learner-facing Markdown, then add only the diagrams and images that materially support the prose. Treat this as a close editorial transformation, not a summary, transcript dump, or slide-image conversion.
 
 - [Output contract](#output-contract)
-- [Prepare the source](#prepare-the-source)
-- [Transform the prose](#transform-the-prose)
+- [Build a slide-linked source](#build-a-slide-linked-source)
+- [Transform the prose first](#transform-the-prose-first)
 - [Organize the Markdown](#organize-the-markdown)
-- [Select instructional visuals](#select-instructional-visuals)
+- [Select visuals from the edited prose](#select-visuals-from-the-edited-prose)
 - [Extract and prepare assets](#extract-and-prepare-assets)
+- [Finalize the learner-facing Markdown](#finalize-the-learner-facing-markdown)
 - [Quality gate](#quality-gate)
 
 ## Output contract
 
-- Deliver one Markdown file. Use the user's path; otherwise write `lecture-notes.md` beside the deck project.
+- Deliver one final Markdown file. Use the user's path; otherwise write `lecture-notes.md` beside the deck project.
 - Put final visual assets in a sibling `lecture-notes-assets/` folder.
 - Link assets with portable relative paths such as `![Single-neuron computation](lecture-notes-assets/single-neuron-computation.png)`.
 - Produce Markdown, not HTML. Use standard headings, paragraphs, lists, tables, fenced code, and LaTeX math where appropriate.
 - Keep the source deck and speaker notes unchanged unless the user separately asks to edit them.
 - Use the deck and its notes as the content source. Do not add outside facts or silently repair a substantive claim through research unless the user asks.
-- Deliver only final assets in `lecture-notes-assets/`; keep inventories, renders, and comparison scratch files outside it.
+- Deliver only selected diagrams, images, and related visual callouts in `lecture-notes-assets/`. Keep full-slide previews, inventories, manifests, renders, and comparison files in scratch space.
+- Do not target an image count or turn each slide into a picture. A good section may need no asset.
 
-## Prepare the source
+## Build a slide-linked source
 
-1. Identify the exact deck and the lecture or unit boundaries. Do not combine separate lectures merely because they share one deck.
-2. If the deck belongs to a generated project, run `autosync.py` first so the slide code and notes reflect the current PowerPoint file.
-3. Choose the current working deck: `out/<name>.pptx` for a generated project, or the user-supplied `.pptx` otherwise. Export its speaker notes directly; do not scaffold a project just to read notes:
+1. Identify the exact deck and lecture or unit boundaries. Do not combine separate lectures merely because they share one deck.
+2. If the deck belongs to a generated project, run `autosync.py` first so the notes reflect the current PowerPoint file.
+3. Choose the current working deck: `out/<name>.pptx` for a generated project, or the user-supplied `.pptx` otherwise.
+4. Export the speaker notes and a temporary reference image for every selected slide into scratch space:
 
    ```bash
    uv run python <pptx-to-pypptx-dir>/scripts/extract_notes.py \
-     --target "<working-deck.pptx>" --output <scratch-dir>/speaker-notes.md
+     --target "<working-deck.pptx>" --slides <lecture-range> \
+     --output <scratch-dir>/speaker-notes.md \
+     --slide-images-dir <scratch-dir>/slide-images
    ```
 
-   Use `--project-dir <project-dir>` only when no current `.pptx` output exists and the generated slide files are the source of truth.
+   The Markdown keeps the real deck number in each `## Slide N: ...` source heading, adds a `lecture-source-slide` marker, and places the matching temporary slide image inside a marked preview block. These images are visual references for editing; they are never final lecture-note assets.
 
-4. Read the speaker notes in order and inspect every corresponding slide.
-5. Inspect slide structure and media when needed:
+   Use `--project-dir <project-dir>` only when no current `.pptx` exists and the generated slide files are the source of truth. That mode exports numbered notes but cannot render slide references without a built deck.
 
-   ```bash
-   uv run python <pptx-to-pypptx-dir>/scripts/extract_slide.py \
-     "<deck.pptx>" all --verbose --json
-   ```
+5. Read the notes and matching preview together, in order. Speaker notes are the primary narrative source. Slide text, equations, and visuals resolve references and verify notation; they are not permission to replace the notes with a new outline.
+6. Copy the source Markdown to a scratch draft. Keep source-slide provenance while editing, for example `<!-- source-slides: 12-15 -->`, so every passage can still be checked against the deck. The finalizer removes these owned markers later.
 
-6. Extract original embedded visual candidates and their provenance into scratch space:
+## Transform the prose first
 
-   ```bash
-   uv run python <pptx-to-pypptx-dir>/scripts/extract_lecture_assets.py \
-     "<working-deck.pptx>" --slides <lecture-range> \
-     --output-dir <scratch-dir>/candidate-assets \
-     --manifest <scratch-dir>/lecture-assets.json
-   ```
-
-   The manifest maps each deduplicated asset to its slide usages, bounds, crop/luminance transforms, transparency, exact repeats, and composite render candidates. It flags formats and slide treatments that require a region render. It does not decide which progressive state to keep.
-
-7. Build a scratch coverage ledger with one row per substantive teaching point and one row per instructional visual. Track the source slide(s), intended section, chosen asset, and any deliberate omission. Do not place this ledger in the final Markdown or asset folder.
-
-Speaker notes are the primary narrative source. Slide text, equations, and visuals resolve references and verify notation; they are not permission to replace the notes with a new outline.
-
-## Transform the prose
+Finish the prose pass before deciding what to extract. Work section by section, or at paragraph/teaching-claim granularity when a section spans several visual ideas.
 
 Preserve the original teaching sequence, terminology, definitions, equations, examples, contrasts, caveats, and conclusions. The result should feel extremely close to the speaker notes in subject matter while reading as a compact course text.
 
@@ -65,52 +54,50 @@ Apply these edits:
 - Change lecturer-centered subjects into concept-centered prose. Replace “I will show” or “let's look at” with constructions such as “This section examines” or “The model uses.”
 - Retain an occasional inclusive “we” when it genuinely guides a derivation or shared observation. Do not mechanically remove every first-person plural.
 - Remove delivery scaffolding: greetings, roadmap chatter, timing remarks, slide directions, rhetorical applause lines, filler, false starts, and repeated punchlines.
-- Remove in-lecture quizzes, polls, knowledge checks, and answer-choice interactions. Do not reproduce their prompts, options, pauses, answer reveals, scoring, or quiz-only visuals. If an interaction introduces substantive teaching content, state that concept or explanation directly; otherwise omit it. Keep ordinary worked questions and examples when their reasoning is itself instructional.
+- Remove in-lecture quizzes, polls, knowledge checks, and answer-choice interactions. Do not reproduce their prompts, options, pauses, answer reveals, scoring, or quiz-only visuals. If an interaction introduces substantive teaching content, state that concept directly; otherwise omit it. Keep ordinary worked questions and examples when their reasoning is instructional.
 - Resolve deictic language. Replace vague “this,” “here,” “that one,” or “on the right” with the named idea, object, equation, or figure.
 - Repair obvious spoken slips or transcription errors only when the slide or nearby notes make the intended wording unambiguous. Flag substantive ambiguity instead of guessing.
-- Merge spoken repetition, but preserve the teaching function. A repeated definition may become one definition; a later contrast, consequence, or recap remains.
-- Convert a spoken comparison into prose, bullets, or a small table when that makes the relationship clearer.
-- Keep explanatory motivation around equations. Do not reduce a derivation to formulas alone.
+- Merge spoken repetition while preserving its teaching function. A repeated definition may become one definition; a later contrast, consequence, or recap remains.
+- Blend ordinary slide bullets and standalone text into the prose. Use a Markdown list only for a real set, sequence, dimensions, conditions, or contrast. Never preserve bullets merely by capturing them in an image.
+- Preserve equations as Markdown math when the notation can be represented faithfully. Keep explanatory motivation around equations rather than reducing a derivation to formulas alone.
 - Prefer semi-formal sentences and precise terminology over conversational performance language. Avoid making the prose stiff, impersonal, or encyclopedic.
 
 The transformation should normally stay close in length and concept coverage. Compression comes from removing performance language and repetition, not from deleting instruction.
 
 ## Organize the Markdown
 
-- Use the lecture title as the single `#` heading.
-- Organize by concepts with `##` and, when useful, `###` headings. Do not create one section per slide and do not expose slide numbers as the learner-facing structure.
+- Replace the `# Speaker Notes: ...` source title with the lecture title as the single `#` heading.
+- Replace the temporary `## Slide N: ...` structure with concept-based `##` and, when useful, `###` headings. Do not expose slide numbers as learner-facing structure.
 - Open with a short orienting paragraph only when the notes provide that orientation.
-- Keep paragraphs cohesive and moderately short. Use lists for real sets, steps, dimensions, conditions, or contrasts—not as the default prose form.
+- Keep paragraphs cohesive and moderately short. Let bullets be part of the written explanation, not visual assets.
 - Write inline math as `$...$` and display math as `$$...$$`. Preserve variable names, subscripts, hats, Greek symbols, and matrix dimensions exactly.
-- Introduce each visual in the prose and place it immediately after the passage it supports. Do not append an unexplained image gallery.
+- Introduce each selected visual in the prose and place it immediately after the passage it supports. Do not append an unexplained image gallery.
 - Give every image concise, meaningful alt text. The surrounding prose must still communicate the instructional takeaway for a learner who cannot see the image.
-- For a complex visual whose important labels or relationships are not already conveyed in the prose, add a short Markdown paragraph beginning `**Figure description.**`. Do not repeat the same description around every image or depend on HTML-only disclosure widgets.
+- For a complex visual whose important relationships are not already conveyed in the prose, add a short Markdown paragraph beginning `**Figure description.**`.
 - End with a takeaway only when the speaker notes contain a genuine synthesis; do not add a generic recap to every lecture.
 
-Use this shape as a guide, not a mandatory template:
+## Select visuals from the edited prose
 
-```markdown
-# Lecture title
+Work outward from the edited prose, not inward from every slide. At each section—or for a finer-grained teaching claim—ask whether a spatial or visual relationship materially improves understanding.
 
-Brief orientation grounded in the speaker notes.
+Keep only:
 
-## First concept
+- a diagram, model, process, architecture, chart, map, annotated equation, or other visual relationship explained by the notes;
+- a meaningful source image, model output, or screenshot that the prose discusses; or
+- callout labels, arrows, highlights, or captions whose spatial attachment to the diagram or image carries meaning.
 
-Semi-formal explanation with preserved notation, motivation, and detail.
+Omit:
 
-![Meaningful description](lecture-notes-assets/first-concept.png)
+- temporary full-slide previews and ordinary slide screenshots;
+- titles, divider slides, agendas, paragraphs, bullet lists, quotations, or standalone text that belongs in Markdown;
+- a text box or callout whose meaning does not depend on where it points—rewrite it into the prose instead;
+- decorative backgrounds, logos, repeated chrome, ornamental photos, navigation, and empty layout elements;
+- quiz prompts, answer choices, answer-reveal states, and quiz-only visuals; and
+- redundant visuals that restate what the prose already communicates clearly.
 
-## Consequence or comparison
+There is no one-image-per-slide or one-image-per-section quota. Some slides contribute only prose. Some multi-slide builds contribute one final diagram. A dense teaching claim may justify more than one visual when each shows a genuinely different case or result.
 
-- First precise relationship
-- Second precise relationship
-```
-
-## Select instructional visuals
-
-Start from all visuals in the lecture, then exclude only those that do not help the learner. Keep diagrams, charts, worked examples, annotated equations, model outputs, meaningful screenshots, and other visuals referenced or explained by the notes. Omit decorative backgrounds, logos, repeated chrome, ornamental photos, navigation, empty layout elements, and quiz prompts, answer-choice screens, or answer-reveal states.
-
-Treat adjacent or repeated visuals as a build family and classify the change before selecting assets:
+Treat adjacent or repeated diagrams as a build family:
 
 | Change between states | Default selection |
 |---|---|
@@ -120,59 +107,106 @@ Treat adjacent or repeated visuals as a build family and classify the change bef
 | A later state removes or replaces an earlier component to teach a contrast | Keep both states when the comparison matters. |
 | Exact or near-exact repetition across slides | Keep one copy and link it once at the best explanatory point. |
 
-Similarity alone is not enough to discard an image. Two nearly identical diagrams may represent different models; several visually progressive slides may communicate only one final idea. Decide from the speaker notes and teaching purpose.
+Similarity alone is not enough to discard a diagram, but slide count is never a reason to keep one.
 
 ## Extract and prepare assets
 
-For each selected visual, use the highest-fidelity source available:
+Extract assets only from the slides selected during the prose pass. Use the highest-fidelity source available.
 
-1. **Single embedded picture:** use the lossless candidate produced by `extract_lecture_assets.py`. Preserve its native alpha channel and resolution. Do not use a slide screenshot when the source image is available and already matches its visible slide treatment.
-2. **Vector artwork:** prefer a transparent SVG when it renders faithfully in the target Markdown environment. Otherwise export a high-resolution PNG with alpha.
-3. **Composite visualization made from slide shapes:** export the logical group or its tight bounds from a scratch copy or asset-only slide, excluding the slide background, title, footer, and unrelated objects. Prefer a transparent background; never alter the source deck for asset extraction.
-4. **Chart, table, equation, or composite that cannot be separated safely:** use a tightly cropped high-resolution render. An opaque neutral background is acceptable when removing it would erase white marks, labels, or other intended content.
+### Embedded pictures
 
-Native Office Math can display correctly in PowerPoint while appearing blank in a LibreOffice render when the equation's compatibility fallback is unavailable. Inspect every rendered equation before using it as an asset. If a renderer drops the math, do not deliver the blank callout or capture the migrated deck as a substitute: render the original source with a verified fallback, or preserve the equation as Markdown math and omit the redundant image.
-
-Prepare a source image or a selected slide region as a PNG:
+Extract original embedded candidates and provenance from the relevant slides:
 
 ```bash
-# Preserve/crop an extracted raster and remove only a flat edge-connected background
+uv run python <pptx-to-pypptx-dir>/scripts/extract_lecture_assets.py \
+  "<working-deck.pptx>" --slides <selected-slides> \
+  --output-dir <scratch-dir>/candidate-assets \
+  --manifest <scratch-dir>/lecture-assets.json
+```
+
+Use a lossless candidate when it already matches the visible treatment. Preserve native alpha and resolution. If it is cropped, rotated, adjusted, or part of a composite, the manifest explains why a rendered selection may be more faithful.
+
+Prepare an extracted raster conservatively:
+
+```bash
 uv run python <pptx-to-pypptx-dir>/scripts/prepare_lecture_asset.py \
   --input-image <scratch-dir>/candidate-assets/<source.png> \
   --output lecture-notes-assets/<semantic-name>.png \
   --transparent --trim --padding 20
+```
 
-# Render a composite region; bounds are x,y,w,h in slide inches
+### Native-shape diagrams with arrows, text, and callouts
+
+First inspect the slide's IDs and object hierarchy:
+
+```bash
+uv run python <pptx-to-pypptx-dir>/scripts/extract_slide.py \
+  "<working-deck.pptx>" <slide-number> --json --verbose
+```
+
+Then select the diagram objects and only the labels/callouts that belong to it:
+
+```bash
 uv run python <pptx-to-pypptx-dir>/scripts/prepare_lecture_asset.py \
-  --target "<working-deck.pptx>" --slide <N> --bounds <x,y,w,h> \
+  --target "<working-deck.pptx>" --slide <slide-number> \
+  --shape-ids <diagram-id,arrow-id,label-id,callout-id> \
+  --output lecture-notes-assets/<semantic-name>.png \
+  --dpi 300 --padding 20
+```
+
+`--shape-ids` is the deterministic equivalent of selecting those objects in PowerPoint and copying them. It keeps their native PPTX relationships, removes every unselected slide object, covers inherited background/master chrome, renders the same selection once on black and once on white, reconstructs clean alpha from the two mattes, and trims to the resulting artwork. This avoids the colored antialias fringe left by single-color chroma keying. Selecting a group ID keeps the complete group; selecting child IDs keeps only those children and their required group ancestry. Always inspect the result on light and dark backgrounds.
+
+### Region-render fallback
+
+Use a tightly bounded region only when the visual cannot be selected by shape ID without breaking it:
+
+```bash
+uv run python <pptx-to-pypptx-dir>/scripts/prepare_lecture_asset.py \
+  --target "<working-deck.pptx>" --slide <slide-number> --bounds <x,y,w,h> \
   --output lecture-notes-assets/<semantic-name>.png --dpi 300 \
   --transparent --trim --padding 20
 ```
 
-Use `--transparent` only for a flat background around the visual. The helper removes matching pixels only when they are connected to an outer edge; enclosed white labels and equation fills remain opaque. It refuses ambiguous backgrounds and images with fewer than three opaque corners unless `--background '#RRGGBB'` is explicit. If the image already has useful alpha, omit `--transparent`. If the result is damaged or the background is not flat, rerun without `--transparent` and keep a tight opaque crop.
+A region render can accidentally capture neighboring bullets or text, so prefer `--shape-ids`. An opaque tight crop is acceptable when transparency would erase intended white marks, formulas, labels, or a non-flat background. Never use the temporary whole-slide reference as this fallback.
 
-Transparency is a preference, not permission to damage a visual. Never key out all white pixels or flatten an existing alpha channel. Inspect transparent assets on both light and dark backgrounds so white strokes, formulas, and labels remain visible.
+Native Office Math can display correctly in PowerPoint while appearing blank in LibreOffice when its compatibility fallback is unavailable. Inspect every rendered equation. If rendering drops the math, preserve it as Markdown math or use a verified source render; never deliver a blank callout.
 
 Additional asset rules:
 
 - Crop tightly but leave consistent breathing room around the teaching object.
 - Preserve readable labels at the Markdown page's expected display width. Re-export rather than enlarging a blurry crop.
 - Keep meaningful source color and annotation semantics.
-- Use semantic lowercase filenames such as `matrix-dimensions.png` or `perceptron-without-activation.svg`; avoid raw names such as `image17.png` when renaming does not break provenance.
-- Avoid duplicate files. If one asset supports two nearby passages, place it once where it best anchors the explanation.
-- Do not use absolute paths, data URIs, remote edX asset URLs, or files outside `lecture-notes-assets/` in the final Markdown.
+- Preserve SVG when it renders faithfully; otherwise use a high-resolution PNG.
+- Use semantic lowercase filenames such as `matrix-dimensions.png`; avoid raw names such as `image17.png`.
+- Avoid duplicate files. Place a reused asset once where it best anchors the explanation.
+- Do not use absolute paths, data URIs, remote asset URLs, or files outside `lecture-notes-assets/` in the final Markdown.
+
+Transparency is a preference, not permission to damage a visual. The helper removes only flat, edge-connected background pixels; it does not globally key out every white pixel or flatten an existing alpha channel.
+
+## Finalize the learner-facing Markdown
+
+The edited draft may retain temporary slide previews and hidden `lecture-source-slide` or `source-slides` markers for verification. Once the prose is concept-organized and final assets are placed, remove those source-only elements deterministically:
+
+```bash
+uv run python <pptx-to-pypptx-dir>/scripts/finalize_lecture_notes.py \
+  <scratch-dir>/lecture-notes.draft.md \
+  --output lecture-notes.md
+```
+
+The finalizer removes marked preview blocks and owned provenance comments. It refuses to write a file if `# Speaker Notes:` or `## Slide N: ...` remains, because deleting the number alone would hide an unedited slide-by-slide structure rather than fix it.
 
 ## Quality gate
 
 Before delivery:
 
-1. Compare the completed note against the coverage ledger. Account for every substantive point as prose, math, a visual, or a deliberate non-instructional omission.
+1. Account for every substantive teaching point as prose, math, a selected visual, or a deliberate non-instructional omission.
 2. Confirm the concept order still follows the speaker notes unless a small reordering clearly improves written coherence without changing the teaching logic.
 3. Remove lecturer performance language, in-lecture quiz interactions, unresolved slide references, transcription artifacts, and unsupported additions.
 4. Verify every equation, symbol, dimension, example, and contrast against the slide and speaker notes.
-5. Open every final asset, inspect transparency and legibility, and confirm progressive-build choices match the prose.
-6. Resolve every relative image link and confirm that the Markdown refers only to files that exist in `lecture-notes-assets/`.
-7. Read the Markdown once as a learner. It should be self-contained, semi-formal, and recognizably the same lecture—not a shortened substitute for it.
+5. Confirm no final asset is a temporary full-slide preview, bullet-list capture, text-only slide, title/divider, or decorative slide image.
+6. Open every final asset. Inspect legibility, transparency on light and dark backgrounds, and whether its callouts are spatially relevant.
+7. Resolve every relative image link and confirm that the Markdown refers only to files that exist in `lecture-notes-assets/`.
+8. Read the Markdown once as a learner. It should be self-contained, semi-formal, and recognizably the same lecture—not a shortened substitute for it.
 
 Run the deterministic link and asset check, then resolve every error and inspect its transparency warnings:
 
@@ -180,3 +214,5 @@ Run the deterministic link and asset check, then resolve every error and inspect
 uv run python <pptx-to-pypptx-dir>/scripts/validate_lecture_notes.py \
   lecture-notes.md --assets-dir lecture-notes-assets
 ```
+
+The validator rejects temporary `slide-images/slide_N.png` references so source previews cannot leak into the final notes.

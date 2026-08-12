@@ -33,10 +33,9 @@ deterministically — while keeping the original untouched as a reference.
 - **Inspect** any slide's shapes/positions/text (and optionally render a PNG)
   without opening PowerPoint.
 - **Generate lecture notes** as semi-formal learner-facing Markdown, preserving
-  the speaker notes' teaching sequence and linking selected slide visuals from a
-  dedicated asset folder. Standalone tools extract notes directly from the
-  `.pptx`, preserve embedded image transparency, render composite regions, and
-  validate final Markdown math and asset links.
+  the speaker notes' teaching sequence while using full-slide images only as
+  temporary references. Final assets contain selected diagrams, images, and
+  spatially related callouts—not captured bullet lists or one image per slide.
 
 ## Installation
 
@@ -106,6 +105,43 @@ back into code. It's deck→code only, so it never rebuilds or overwrites the fi
 you just saved. Changed masters, layouts, or the theme? Those don't auto-sync —
 ask the agent to refresh them.
 
+### Lecture-note source and selected diagrams
+
+Create a scratch Markdown source whose numbered notes are paired with the exact
+slide reference image:
+
+```bash
+uv run python scripts/extract_notes.py \
+  --target lecture.pptx --slides 8-24 \
+  --output /tmp/lecture-source/speaker-notes.md \
+  --slide-images-dir /tmp/lecture-source/slide-images
+```
+
+After rewriting that source into concept-organized prose, inspect a relevant
+slide's object IDs and export only the native diagram objects plus any labels or
+callouts that spatially belong to them:
+
+```bash
+uv run python scripts/extract_slide.py lecture.pptx 14 --json --verbose
+
+uv run python scripts/prepare_lecture_asset.py \
+  --target lecture.pptx --slide 14 --shape-ids 7,9,10,12 \
+  --output lecture-notes-assets/model-flow.png --dpi 300 --padding 20
+```
+
+The selected-shape command keeps native pictures, shapes, arrows, and text,
+hides every unselected slide object, reconstructs clean transparency from paired
+black/white renders, and writes a tightly trimmed PNG. Finish by stripping
+temporary previews and source-slide markers; the finalizer refuses a still
+slide-by-slide draft:
+
+```bash
+uv run python scripts/finalize_lecture_notes.py \
+  /tmp/lecture-notes.draft.md --output lecture-notes.md
+uv run python scripts/validate_lecture_notes.py \
+  lecture-notes.md --assets-dir lecture-notes-assets
+```
+
 ### Your project
 
 The agent creates a project folder (you choose the name):
@@ -173,7 +209,8 @@ pptx-to-pypptx/
 │   ├── extract_slide.py     # dump/screenshot a single slide
 │   ├── extract_notes.py     # export speaker notes from PPTX/project to Markdown
 │   ├── extract_lecture_assets.py # extract visual candidates + manifest
-│   ├── prepare_lecture_asset.py  # prepare transparent/cropped PNG assets
+│   ├── prepare_lecture_asset.py  # prepare selected-shape/transparent PNG assets
+│   ├── finalize_lecture_notes.py # remove temporary previews + slide provenance
 │   ├── validate_lecture_notes.py # validate Markdown math + asset links
 │   ├── sync_slide_numbers.py# reserve/close slide-number slots
 │   ├── list_layouts.py      # list slide layouts in a deck
