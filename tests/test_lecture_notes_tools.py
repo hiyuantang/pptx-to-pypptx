@@ -22,6 +22,7 @@ from helpers.lecture_assets import (
 )
 from helpers.lecture_shapes import isolate_slide_shapes, parse_shape_ids
 from helpers.pptx_utils import read_slide_size
+from helpers.slide_xml import read_slide_shapes
 from prepare_lecture_asset import prepare_asset
 from validate_lecture_notes import validate_lecture_notes
 
@@ -67,6 +68,24 @@ def _slide_xml(title: str) -> str:
         <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
       </p:spPr>
     </p:pic>
+    <p:graphicFrame>
+      <p:nvGraphicFramePr>
+        <p:cNvPr id="7" name="Token Table"/>
+        <p:cNvGraphicFramePr/><p:nvPr/>
+      </p:nvGraphicFramePr>
+      <p:xfrm><a:off x="914400" y="2743200"/><a:ext cx="1828800" cy="457200"/></p:xfrm>
+      <a:graphic>
+        <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/table">
+          <a:tbl>
+            <a:tblPr/><a:tblGrid><a:gridCol w="1828800"/></a:tblGrid>
+            <a:tr h="457200"><a:tc>
+              <a:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>token</a:t></a:r></a:p></a:txBody>
+              <a:tcPr/>
+            </a:tc></a:tr>
+          </a:tbl>
+        </a:graphicData>
+      </a:graphic>
+    </p:graphicFrame>
     <p:grpSp>
       <p:nvGrpSpPr><p:cNvPr id="4" name="Diagram Group"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>
       <p:grpSpPr><a:xfrm>
@@ -222,6 +241,21 @@ Concept prose.
         self.assertEqual(parse_shape_ids("7, 3,7"), [7, 3])
         with self.assertRaisesRegex(ValueError, "positive"):
             parse_shape_ids("0")
+
+    def test_slide_extraction_exposes_table_shape_identity(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            slide_path = Path(tmpdir) / "slide1.xml"
+            slide_path.write_text(_slide_xml("Table Identity"), encoding="utf-8")
+
+            table = next(
+                shape for shape in read_slide_shapes(slide_path)
+                if shape["type"] == "table"
+            )
+
+        self.assertEqual(table["id"], "7")
+        self.assertEqual(table["name"], "Token Table")
+        self.assertEqual(table["group_path"], [])
+        self.assertEqual((table["rows"], table["cols"]), (1, 1))
 
     def test_isolate_selected_group_child_prunes_its_siblings(self):
         with tempfile.TemporaryDirectory() as tmpdir:

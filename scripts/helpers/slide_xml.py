@@ -1890,14 +1890,29 @@ def parse_graphicFrame(gf, transform, group_path, slide_rels=None):
         chart_path = slide_rels[r_id]['target']
 
     if 'table' in uri:
-        return parse_table(gf, transform, group_path, slide_rels)
+        result = parse_table(gf, transform, group_path, slide_rels)
     elif 'chart' in uri or 'diagram' in uri:
-        return parse_chart_or_diagram(gf, transform, group_path, uri, slide_rels=slide_rels, chart_path=chart_path)
+        result = parse_chart_or_diagram(
+            gf,
+            transform,
+            group_path,
+            uri,
+            slide_rels=slide_rels,
+            chart_path=chart_path,
+        )
     else:
         abs_xfrm = combine_transforms(transform, parse_xfrm(gf.find(f'{{{P}}}xfrm')))
         x, y, w, h = xfrm_to_box(abs_xfrm)
-        return {'type': 'graphic', 'name': 'Graphic', 'subtype': uri,
-                'x': x, 'y': y, 'w': w, 'h': h, 'group_path': list(group_path)}
+        result = {'type': 'graphic', 'name': 'Graphic', 'subtype': uri,
+                  'x': x, 'y': y, 'w': w, 'h': h, 'group_path': list(group_path)}
+
+    # Every graphic frame has the same non-visual identity contract as shapes,
+    # pictures, and connectors. Keep it on the parsed object so extract_slide.py
+    # exposes the stable IDs that prepare_lecture_asset.py accepts.
+    result['id'] = get_id(gf)
+    result['name'] = get_name(gf, result.get('name', 'Graphic'))
+    result.setdefault('group_path', list(group_path))
+    return result
 
 
 # ---------------------------------------------------------------------------
