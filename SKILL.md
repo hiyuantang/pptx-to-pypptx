@@ -13,7 +13,7 @@ Replace `<pptx-to-pypptx-dir>` below with the directory that contains this `SKIL
 
 - **Target & iteration.** The **initial target** is the `.pptx` the user gave you; it is **read-only** — never overwrite, modify, or move it. After the first build the working target becomes **`out/<filename>.pptx`** (unless the user names a different file). Every successful build is archived to `backup/`, so you can edit the `out/` file freely and roll back.
 - **Run the scripts; don't hand-craft XML.** The scripts handle extraction, codegen, and rebuilding. Your job is to pick the right one and act on its reported status. Run them as documented — don't pre-emptively edit, move, rename, or delete files.
-- **Lecture notes are a core output.** For any lecture-note request, read [`references/LECTURE_NOTES.md`](./references/LECTURE_NOTES.md) completely before acting. Follow its close speaker-notes-to-prose transformation, concept-based Markdown structure, instructional-visual selection, `lecture-notes-assets/` contract, and quality gate. Do not treat lecture notes as a generic summary.
+- **Lecture notes are a core output.** For any lecture-note request, read [`references/LECTURE_NOTES.md`](./references/LECTURE_NOTES.md) completely before acting. Follow its source-to-notes content audit, concept-based Markdown structure, complete instructional-visual coverage, PowerPoint-native fidelity, source-relative sizing, `lecture-notes-assets/` contract, optional standalone HTML workflow, and quality gate. The target is a stand-alone replacement for studying the lecture, never a generic summary.
 - **Execute deterministic steps decisively — don't overthink them.** These scripts are deterministic and print an explicit status. Run the right one and act on that line; do **not** re-run "to be sure", re-verify its work, or inspect slides unless the status or the user asks. Trust these success signals and move on:
   - `autosync.py` → `OK` (nothing to do — proceed) · `SYNCED` (code updated — proceed) · `SKIPPED` (do what the message says).
   - `build_deck.py` → `Wrote …` followed by `Validator passed …` and `Recorded round-trip sync state …`.
@@ -53,6 +53,7 @@ my-deck/
 ├── out/
 │   └── my-deck.pptx
 ├── lecture-notes.md          # optional learner-facing notes, created when requested
+├── lecture-notes.html        # optional self-contained companion, when requested
 ├── lecture-notes-assets/     # optional final visuals linked from lecture-notes.md
 └── .roundtrip_state.json      # marks the deck version the code is in sync with (auto-sync)
 ```
@@ -75,7 +76,7 @@ my-deck/
 | `extract_lecture_assets.py` | Extract Markdown-compatible embedded visual candidates from selected slides without flattening existing transparency. Deduplicate them and write a provenance manifest with slide usage, transforms, exact repeats, composite render candidates, and unresolved media. |
 | `prepare_lecture_asset.py` | Prepare one PNG from an extracted raster, a tightly bounded PPTX region, or selected native objects (`--shape-ids`). Shape selection keeps only the requested diagram/arrows/text/callouts and automatically produces a trimmed transparent render. |
 | `finalize_lecture_notes.py` | Remove marked temporary slide previews and internal source-slide provenance from an edited draft. Refuse unedited `# Speaker Notes:` or `## Slide N` structure. |
-| `validate_lecture_notes.py` | Validate the clickable nested Table of Contents, required Markdown math delimiters, image links, alt text, local asset containment, file existence, unused assets, and raster transparency. `--strict-transparency` rejects opaque rasters unless an intrinsic screenshot, photo, or panel is exactly allowlisted with `--allow-opaque`. |
+| `validate_lecture_notes.py` | Validate the clickable nested Table of Contents, required Markdown math delimiters, Markdown or source-sized raw HTML image links, alt text, local asset containment, file existence, unused assets, and raster transparency. `--strict-transparency` rejects opaque rasters unless an intrinsic screenshot, photo, or panel is exactly allowlisted with `--allow-opaque`. |
 | `add_comment.py` | Leave a **Claude-authored** comment on a slide (`--project-dir`, `--slide`, `--text`). Adds a `shapes.add_comment(...)` call to the slide's file so it attaches on the next `build_deck.py`. Use it when your edit is substantial, fixes a perceived error, or addresses an existing comment — see **Annotating your own changes** below. |
 | `migrate_comments.py` | One-time: move a pre-existing project's `comments/` XML store into its slide files (`--project-dir`, `--apply`). Reads the built deck as the source of truth. Only needed for projects scaffolded before comments moved into `slides/*.py`. |
 | `list_layouts.py` | List layout indices in a deck (for a slide's `LAYOUT` constant). |
@@ -146,13 +147,16 @@ uv run python <pptx-to-pypptx-dir>/scripts/add_comment.py \
 
 Lecture notes are a first-class derivative of the deck, not slide-by-slide speaker-note extraction. Read and follow [`references/LECTURE_NOTES.md`](./references/LECTURE_NOTES.md) in full. It defines how to:
 
-- preserve the speaker notes' teaching sequence and substantive coverage while shifting from lecturer-centered speech to semi-formal, concept-centered prose;
+- produce a stand-alone lecture replacement rather than a summary, preserving the speaker notes' teaching sequence, explanations, reasoning, examples, caveats, and conclusions while shifting from lecturer-centered speech to semi-formal, concept-centered prose;
+- complete a source-to-notes content audit and treat a material unexplained narrative word-count gap as a review trigger rather than dismissing it as headings or compression;
 - organize one coherent Markdown document by concepts rather than slide numbers, with a clickable nested Table of Contents after the opening paragraph;
 - use temporary slide-numbered previews only to edit and verify the prose, then select diagrams or images from the prose's actual teaching needs rather than from every slide;
-- complete a scratch visual-coverage ledger that accounts for every substantive visual teaching claim and multi-slide build family, with no unresolved extraction retries;
-- blend ordinary bullets and slide text into the written explanation, keeping only spatially meaningful labels and callouts inside visual assets;
-- require true alpha for native-shape diagrams, explicitly justify and allowlist only intrinsically opaque screenshots, photos, or panels, and link final assets from a sibling `lecture-notes-assets/` folder; and
-- remove source-slide markers before delivery and verify content coverage, notation, visual fidelity, transparency, and every relative asset link.
+- use Markdown for prose, real lists/tables, code, and math, while retaining source PowerPoint visuals for photographs, screenshots, charts, timelines, architectures, pipelines, arrows, spatial relationships, model outputs, and annotated states;
+- complete a scratch visual-coverage ledger that accounts for every substantive visual teaching claim and multi-slide build family, retaining the final complete state plus every distinct case, result, contrast, or referenced intermediate state;
+- extract the actual PowerPoint objects instead of redrawing diagrams in HTML or another graphics system, and escalate to Microsoft PowerPoint rendering when substitute renderers change fonts or layout;
+- require true exterior alpha for native-shape diagrams, preserve meaningful intrinsic panel backgrounds, verify exposed labels on light and dark pages, and keep each image at its source-relative PowerPoint width;
+- optionally generate a standalone HTML companion with byte-embedded final assets while keeping Markdown canonical; and
+- remove source-slide markers before delivery and verify content coverage, notation, visual fidelity, transparency, sizing, every relative asset link, and requested HTML portability.
 
 Do not edit, scaffold, or rebuild the deck merely to create lecture notes. If a generated project is the source, run `autosync.py` first, then work directly from its current output. Use the deterministic source-extraction and validation scripts defined in the reference workflow; reserve agent judgment for prose transformation and teaching-purpose visual selection.
 

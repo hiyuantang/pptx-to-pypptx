@@ -32,10 +32,11 @@ deterministically — while keeping the original untouched as a reference.
   have to say which slides.
 - **Inspect** any slide's shapes/positions/text (and optionally render a PNG)
   without opening PowerPoint.
-- **Generate lecture notes** as semi-formal learner-facing Markdown, preserving
-  the speaker notes' teaching sequence while using full-slide images only as
-  temporary references. Final assets contain selected diagrams, images, and
-  spatially related callouts—not captured bullet lists or one image per slide.
+- **Generate lecture notes** as a stand-alone replacement for studying the
+  lecture, preserving the speaker notes' complete teaching sequence and
+  explanations while extracting every instructional source visual that prose,
+  Markdown structure, math, or code cannot faithfully replace. A requested
+  self-contained HTML companion embeds those same final assets.
 
 ## Installation
 
@@ -75,6 +76,9 @@ tooling changed. (It's a git clone, so `git -C <clone-dir> pull` also works.)
   `pillow-heif>=1.0`
 - Optional: [LibreOffice](https://www.libreoffice.org/) and Poppler's
   `pdftoppm` for rendering slides and composite lecture-note assets to images.
+- Optional: Microsoft PowerPoint for source-faithful selection rendering when a
+  substitute renderer changes fonts or layout, and
+  [Pandoc](https://pandoc.org/) for a standalone embedded-asset HTML companion.
 
 ## Using it
 
@@ -89,6 +93,7 @@ language:
 - *"Delete slide 7."*
 - *"Put `logo.png` in the top-right corner of the title slide."*
 - *"Turn this lecture's speaker notes and visuals into Markdown lecture notes."*
+- *"Also give me a standalone HTML version with the images embedded."*
 - *"Roll back to the previous build."*
 - *"Upgrade the pptx-to-pypptx skill."*
 
@@ -105,7 +110,16 @@ back into code. It's deck→code only, so it never rebuilds or overwrites the fi
 you just saved. Changed masters, layouts, or the theme? Those don't auto-sync —
 ask the agent to refresh them.
 
-### Lecture-note source and selected diagrams
+### Complete lecture notes and source-faithful visuals
+
+Lecture notes are not a summary. The finished document must teach the complete
+lecture to a learner who has neither the video nor the slides. Audit every
+substantive speaker-note passage, then review every slide and progressive build
+family for photographs, screenshots, charts, timelines, architectures, arrows,
+spatial relationships, model outputs, annotated states, and distinct examples.
+Use ordinary Markdown for prose, true lists and tables, code, and faithful math;
+extract everything else from the actual PowerPoint objects instead of redrawing
+it in HTML or another graphics system.
 
 Create a scratch Markdown source whose numbered notes are paired with the exact
 slide reference image:
@@ -131,9 +145,13 @@ uv run python scripts/prepare_lecture_asset.py \
 
 The selected-shape command keeps native pictures, shapes, arrows, and text,
 hides every unselected slide object, reconstructs clean transparency from paired
-black/white renders, and writes a tightly trimmed PNG. Finish by stripping
-temporary previews and source-slide markers; the finalizer refuses a still
-slide-by-slide draft:
+black/white renders, and writes a tightly trimmed PNG. Preserve the source
+object's relative slide width with a responsive raw HTML `<img>` tag when plain
+Markdown would enlarge it. Inspect each asset at that delivered width on both
+light and dark backgrounds, and use Microsoft PowerPoint rendering when another
+application changes the source font or geometry. Finish by stripping temporary
+previews and source-slide markers; the finalizer refuses a still slide-by-slide
+draft:
 
 ```bash
 uv run python scripts/finalize_lecture_notes.py \
@@ -158,6 +176,7 @@ my-deck/
 ├── out/
 │   └── my-deck.pptx   # the built deck — open, edit, and share this one
 ├── lecture-notes.md   # optional learner-facing notes, created when requested
+├── lecture-notes.html # optional self-contained companion, when requested
 ├── lecture-notes-assets/ # optional visuals linked from the notes
 ├── backup/            # the last 10 builds, auto-saved on every rebuild
 ├── build_deck.py      # generated plumbing
@@ -211,7 +230,7 @@ pptx-to-pypptx/
 │   ├── extract_lecture_assets.py # extract visual candidates + manifest
 │   ├── prepare_lecture_asset.py  # prepare selected-shape/transparent PNG assets
 │   ├── finalize_lecture_notes.py # remove temporary previews + slide provenance
-│   ├── validate_lecture_notes.py # validate Markdown math + asset links
+│   ├── validate_lecture_notes.py # validate Markdown/HTML image links + assets
 │   ├── sync_slide_numbers.py# reserve/close slide-number slots
 │   ├── list_layouts.py      # list slide layouts in a deck
 │   ├── recapture_base.py    # refresh lib/base.pptx after editing masters/layouts/theme

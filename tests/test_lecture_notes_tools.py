@@ -387,6 +387,85 @@ Concept prose.
         self.assertEqual(validation["summary"]["linked_assets"], 1)
         self.assertEqual(validation["summary"]["opaque_rasters"], 0)
 
+    def test_validator_accepts_source_sized_raw_html_image(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            Image.new("RGBA", (8, 6), (20, 40, 60, 0)).save(
+                assets / "concept.png"
+            )
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                _lecture_markdown(
+                    '<img src="lecture-notes-assets/concept.png" '
+                    'alt="Concept diagram" width="42.50%" '
+                    'style="display: block; width: 42.50%; max-width: 100%; '
+                    'height: auto; margin: 1.6rem auto;" />'
+                ),
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(
+                markdown,
+                assets,
+                strict_transparency=True,
+            )
+
+        self.assertEqual(validation["errors"], [])
+        self.assertEqual(validation["warnings"], [])
+        self.assertEqual(validation["summary"]["image_links"], 1)
+        self.assertEqual(validation["summary"]["linked_assets"], 1)
+
+    def test_validator_rejects_raw_html_image_without_alt(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            Image.new("RGBA", (8, 6), (20, 40, 60, 0)).save(
+                assets / "concept.png"
+            )
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                _lecture_markdown(
+                    '<img src="lecture-notes-assets/concept.png" width="42.50%" />'
+                ),
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(markdown, assets)
+
+        self.assertIn(
+            "Raw HTML image is missing an alt attribute: "
+            "lecture-notes-assets/concept.png",
+            validation["errors"],
+        )
+        self.assertIn(
+            "Image link has empty alt text: lecture-notes-assets/concept.png",
+            validation["errors"],
+        )
+
+    def test_validator_rejects_raw_html_data_uri(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                _lecture_markdown(
+                    '<img src="data:image/png;base64,AAAA" alt="Embedded diagram" />'
+                ),
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(markdown, assets)
+
+        self.assertIn(
+            "Image link must be local, not remote or data-based: "
+            "data:image/png;base64,AAAA",
+            validation["errors"],
+        )
+
     def test_validator_warns_for_opaque_asset_by_default(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
