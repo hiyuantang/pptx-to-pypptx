@@ -208,18 +208,13 @@ By default, assume the human edited the working deck at `out/<filename>.pptx`. T
 
 ### Upgrade the skill
 
-Triggered by "upgrade the pptx-to-pypptx skill." Pull, then migrate projects only if code changed.
+Triggered by "upgrade the pptx-to-pypptx skill." Update the skill, review what changed, then migrate projects only when required.
 
-1. **Pull and diff:**
-   ```bash
-   OLD=$(git -C <pptx-to-pypptx-dir> rev-parse HEAD)
-   git -C <pptx-to-pypptx-dir> pull
-   git -C <pptx-to-pypptx-dir> diff --name-only "$OLD" HEAD
-   ```
-   "Already up to date." → stop.
-2. **Re-read `SKILL.md` if it changed** — your loaded copy is now stale.
-3. **Decide.** Migrate only if the diff touched **`scripts/`** or **`template/`**. Docs-only (`*.md`, `LICENSE`, `references/`) → report "no migration needed" and stop.
-4. **Re-baseline each project** (`detect_project.py`) from its own `out/<name>.pptx`:
+1. **Identify the installation type.** Treat the skill as a standalone checkout only when its directory is the Git repository root. If Git resolves to a parent project—or no repository—treat it as a project-scoped vendored install; do not pull the parent project.
+2. **Update and diff.** Pull a standalone checkout. For a vendored install, clone the canonical upstream in scratch space, compare it with the installed folder, and apply the upstream changes without copying `.git/` or overwriting local customizations. No diff means it is already current.
+3. **Re-read `SKILL.md` if it changed** — your loaded copy is now stale.
+4. **Decide.** Migrate only if the diff touched **`scripts/`** or **`template/`**. Docs-only (`*.md`, `LICENSE`, `references/`) → report "no migration needed" and stop.
+5. **Re-baseline each project** (`detect_project.py`) from its own `out/<name>.pptx`:
    1. **Build** (`build_deck.py`), then **commit** the project — re-scaffolding resets `lib/design.py`, re-syncs `assets/`, and empties `slides/`.
    2. **Re-scaffold in place** (`scaffold.py --target <output-dir>/out/<name>.pptx --output-dir <output-dir>`).
    3. **Regenerate all slides** (`generate_slides.py --slides 1-N`).
