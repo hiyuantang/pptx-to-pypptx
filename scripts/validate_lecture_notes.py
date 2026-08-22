@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Markdown lecture-note image links and local asset hygiene."""
+"""Validate lecture-note image links and local asset hygiene."""
 
 import argparse
 import html
@@ -13,7 +13,12 @@ from urllib.parse import unquote, urlparse
 from helpers.lecture_assets import inspect_raster
 
 
-IMAGE_LINK = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+MARKDOWN_IMAGE_LINK = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+HTML_IMAGE_TAG = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
+HTML_ATTRIBUTE = re.compile(
+    r"(?P<name>[A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*"
+    r"(?:\"(?P<double>[^\"]*)\"|'(?P<single>[^']*)')"
+)
 FENCED_CODE = re.compile(r"```.*?```", re.DOTALL)
 NONSTANDARD_MATH_DELIMITER = re.compile(r"\\(?:\(|\)|\[|\])")
 MARKDOWN_MEDIA = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
@@ -36,6 +41,32 @@ def _link_target(raw: str) -> str:
     if value.startswith("<") and ">" in value:
         return value[1:value.index(">")]
     return value.split(maxsplit=1)[0]
+
+
+def _image_references(text: str) -> tuple[list[tuple[str, str]], list[str]]:
+    """Return ``(alt, local target)`` pairs from Markdown and raw HTML images."""
+
+    references = [
+        (match.group(1), _link_target(match.group(2)))
+        for match in MARKDOWN_IMAGE_LINK.finditer(text)
+    ]
+    errors: list[str] = []
+    for tag_match in HTML_IMAGE_TAG.finditer(text):
+        tag = tag_match.group(0)
+        attributes: dict[str, str] = {}
+        for attribute in HTML_ATTRIBUTE.finditer(tag):
+            value = attribute.group("double")
+            if value is None:
+                value = attribute.group("single")
+            attributes[attribute.group("name").lower()] = html.unescape(value)
+        source = attributes.get("src")
+        if source is None:
+            errors.append("Raw HTML image is missing a quoted src attribute")
+            continue
+        if "alt" not in attributes:
+            errors.append(f"Raw HTML image is missing an alt attribute: {source}")
+        references.append((attributes.get("alt", ""), source.strip()))
+    return references, errors
 
 
 def _plain_heading_title(value: str) -> str:
@@ -225,14 +256,14 @@ def validate_lecture_notes(
         errors.append("Source-slide provenance remains; run finalize_lecture_notes.py")
     if SLIDE_HEADING.search(prose) or SOURCE_TITLE.search(prose):
         errors.append("Slide-by-slide source structure remains; organize the final notes by concept")
-    matches = list(IMAGE_LINK.finditer(text))
-    if not matches:
-        warnings.append("No Markdown image links found")
+    image_references, image_reference_errors = _image_references(prose)
+    errors.extend(image_reference_errors)
+    if not image_references:
+        warnings.append("No lecture-note image links found")
 
-    for match in matches:
-        alt = match.group(1).strip()
-        raw_target = _link_target(match.group(2))
-        target = unquote(raw_target)
+    for raw_alt, raw_target in image_references:
+        alt = html.unescape(raw_alt).strip()
+        target = unquote(html.unescape(raw_target))
         if not alt:
             errors.append(f"Image link has empty alt text: {raw_target}")
         target_path = Path(target)
@@ -305,7 +336,7 @@ def validate_lecture_notes(
         "errors": errors,
         "warnings": warnings,
         "summary": {
-            "image_links": len(matches),
+            "image_links": len(image_references),
             "linked_assets": len(linked_files),
             "unused_assets": len(unused),
             "opaque_rasters": len(opaque_files),
