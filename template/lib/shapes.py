@@ -3220,5 +3220,11 @@ def add_chart_xml(slide: "Slide", asset_name: str, x: float, y: float, w: float,
         Inches(x), Inches(y), Inches(w), Inches(h), data,
     )
     part = frame.chart.part
+    # Sever the placeholder's embedded-workbook relationship FIRST (while the
+    # element is still python-pptx's own): PowerPoint treats an attached
+    # workbook as the chart's data source and silently regenerates the chart
+    # XML from it on the next save — wiping the verbatim data. With no
+    # relationships the chart keeps its cached values, like a pasted chart.
+    part.rels._rels.clear()
     part._element = etree.fromstring((ASSETS / asset_name).read_bytes())
     return frame
