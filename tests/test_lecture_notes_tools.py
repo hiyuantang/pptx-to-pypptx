@@ -417,6 +417,35 @@ Concept prose.
         self.assertEqual(validation["summary"]["image_links"], 1)
         self.assertEqual(validation["summary"]["linked_assets"], 1)
 
+    def test_validator_accepts_raw_html_image_with_angle_bracket_in_alt(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            Image.new("RGBA", (8, 6), (20, 40, 60, 0)).save(
+                assets / "concept.png"
+            )
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                _lecture_markdown(
+                    '<img src="lecture-notes-assets/concept.png" '
+                    'alt="Accuracy climbs once the learning rate > 0.01" '
+                    'width="42.50%" />'
+                ),
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(
+                markdown,
+                assets,
+                strict_transparency=True,
+            )
+
+        self.assertEqual(validation["errors"], [])
+        self.assertEqual(validation["warnings"], [])
+        self.assertEqual(validation["summary"]["image_links"], 1)
+        self.assertEqual(validation["summary"]["linked_assets"], 1)
+
     def test_validator_rejects_raw_html_image_without_alt(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
