@@ -80,7 +80,7 @@ my-deck/
 | `migrate_comments.py` | One-time: move a pre-existing project's `comments/` XML store into its slide files (`--project-dir`, `--apply`). Reads the built deck as the source of truth. Only needed for projects scaffolded before comments moved into `slides/*.py`. |
 | `list_layouts.py` | List layout indices in a deck (for a slide's `LAYOUT` constant). |
 | `detect_project.py` | List existing projects (current dir or one level down) with each one's slides, backups, and output path. Run before a partial update. Returns a `projects` array (`count` 0 → exit 1). |
-| `build_deck.py` | *(inside the project)* Build `slides/` into `out/<name>.pptx`, archiving the prior build to `backup/`. Self-contained and takes no arguments — it uses the bundled `lib/base.pptx` for masters/layouts/theme. On success it stamps `.roundtrip_state.json` so auto-sync never mistakes this build for a human edit. |
+| `build_deck.py` | *(inside the project)* Build `slides/` into `out/<name>.pptx`, archiving the prior build to `backup/`. Self-contained and takes no arguments — it uses the bundled `lib/base.pptx` for masters/layouts/theme. On success it stamps `.roundtrip_state.json` so auto-sync never mistakes this build for a human edit. **Refuses to run while the deck is open in PowerPoint** (detects the `~$<name>.pptx` owner-lock; an open deck's next Save would clobber the build). Close the deck first, or `PPTX_FORCE_BUILD=1` for a stale lock. |
 | `recapture_base.py` | Refresh a project's `lib/base.pptx` from an edited deck (default source: its `out/<name>.pptx`) after you change masters/layouts/theme in PowerPoint. Non-destructive — only rewrites `lib/base.pptx`, never touches `slides/`. |
 
 Canonical invocations:
