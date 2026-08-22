@@ -1958,13 +1958,23 @@ def _extract_container(container, transform, group_path, slide_rels=None, image_
         if (top_level
                 and tag in (f'{{{P}}}sp', f'{{{P}}}grpSp', f'{{{P}}}cxnSp')
                 and _needs_raw_passthrough(child)):
-            elements.append({
-                'type': 'raw',
-                'name': get_name(child),
-                'id': get_id(child),
+            if tag == f'{{{P}}}grpSp':
+                xfrm = child.find(f'{{{P}}}grpSpPr/{{{A}}}xfrm')
+            else:
+                xfrm = child.find(f'{{{P}}}spPr/{{{A}}}xfrm')
+            raw = _base_attrs(
+                xfrm,
+                transform,
+                group_path,
+                'raw',
+                get_name(child),
+                get_id(child),
+            )
+            raw.update({
                 'raw_xml': ET.tostring(child, encoding='unicode'),
                 'z': z_counter[0],
             })
+            elements.append(raw)
             z_counter[0] += 1
             continue
         if tag == f'{{{P}}}sp':

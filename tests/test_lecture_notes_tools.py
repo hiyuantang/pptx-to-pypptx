@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from extract_lecture_assets import extract_lecture_assets
 from extract_notes import generate_target_markdown
+from extract_slide import extract_slide
 from finalize_lecture_notes import finalize_markdown
 from helpers.lecture_assets import (
     recover_alpha_from_mattes,
@@ -43,6 +44,20 @@ def _lecture_markdown(body: str = "") -> str:
         "## Core Concept\n\nConcept prose.\n\n"
         "### Worked Example\n\nExample prose."
         f"{suffix}\n"
+    )
+
+
+def _visual_ledger(rows: list[tuple[str, str, str]]) -> str:
+    body = "\n".join(
+        f"| Core concept | 1-2 | {candidate} | {disposition} | {reason} |"
+        for candidate, disposition, reason in rows
+    )
+    return (
+        "# Visual coverage ledger\n\n"
+        "| Prose section / teaching claim | Source slide(s) or build family | "
+        "Candidate visual | Disposition | Reason / QA result |\n"
+        "|---|---|---|---|---|\n"
+        f"{body}\n"
     )
 
 
@@ -103,6 +118,18 @@ def _slide_xml(title: str) -> str:
     </p:grpSp>
   </p:spTree></p:cSld>
 </p:sld>'''
+
+
+def _raw_shape_slide_xml() -> str:
+    raw_shape = f'''
+    <p:sp>
+      <p:nvSpPr><p:cNvPr id="8" name="Raw Custom Shape"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>
+      <p:spPr>
+        <a:xfrm><a:off x="1828800" y="3657600"/><a:ext cx="914400" cy="457200"/></a:xfrm>
+        <a:custGeom/>
+      </p:spPr>
+    </p:sp>'''
+    return _slide_xml("Raw Shape").replace("  </p:spTree>", f"{raw_shape}\n  </p:spTree>")
 
 
 def _slide_rels(include_notes: bool) -> str:
@@ -256,6 +283,17 @@ Concept prose.
         self.assertEqual(table["name"], "Token Table")
         self.assertEqual(table["group_path"], [])
         self.assertEqual((table["rows"], table["cols"]), (1, 1))
+
+    def test_extract_slide_sorts_raw_passthrough_shape_with_geometry(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            slide_path = Path(tmpdir) / "slide1.xml"
+            slide_path.write_text(_raw_shape_slide_xml(), encoding="utf-8")
+
+            result = extract_slide(slide_path, 1, verbose=True, json_mode=True)
+            raw = next(shape for shape in result["shapes"] if shape["type"] == "raw")
+
+        self.assertEqual(raw["id"], "8")
+        self.assertEqual((raw["x"], raw["y"], raw["w"], raw["h"]), (2.0, 4.0, 1.0, 0.5))
 
     def test_isolate_selected_group_child_prunes_its_siblings(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -416,6 +454,141 @@ Concept prose.
         self.assertEqual(validation["warnings"], [])
         self.assertEqual(validation["summary"]["image_links"], 1)
         self.assertEqual(validation["summary"]["linked_assets"], 1)
+
+    def test_visual_ledger_accepts_linked_keep_and_explicit_nonspatial_omit(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            Image.new("RGBA", (8, 6), (20, 40, 60, 0)).save(assets / "concept.png")
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                _lecture_markdown("![Concept diagram](lecture-notes-assets/concept.png)"),
+                encoding="utf-8",
+            )
+            ledger = root / "visual-coverage-ledger.md"
+            ledger.write_text(
+                _visual_ledger([
+                    ("Architecture diagram", "keep", "Final asset `concept.png`; QA passed."),
+                    (
+                        "Arrow-linked decorative flourish",
+                        "omit",
+                        "No instructional spatial relationship; ornamental duplicate.",
+                    ),
+                ]),
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(
+                markdown,
+                assets,
+                visual_ledger_path=ledger,
+            )
+
+        self.assertEqual(validation["errors"], [])
+        self.assertEqual(validation["summary"]["visual_ledger_rows"], 2)
+        self.assertEqual(validation["summary"]["visual_ledger_kept"], 1)
+
+    def test_visual_ledger_rejects_renderer_failure_as_omit(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            Image.new("RGBA", (8, 6), (20, 40, 60, 0)).save(assets / "concept.png")
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                _lecture_markdown("![Concept diagram](lecture-notes-assets/concept.png)"),
+                encoding="utf-8",
+            )
+            ledger = root / "visual-coverage-ledger.md"
+            ledger.write_text(
+                _visual_ledger([
+                    ("Architecture diagram", "keep", "Final asset `concept.png`; QA passed."),
+                    (
+                        "Task-head pipeline",
+                        "omit",
+                        "LibreOffice wrapped its labels, so a Markdown table replaces it.",
+                    ),
+                ]),
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(
+                markdown,
+                assets,
+                visual_ledger_path=ledger,
+            )
+
+        self.assertTrue(any(
+            "cites a rendering or extraction failure" in error
+            for error in validation["errors"]
+        ))
+
+    def test_visual_ledger_rejects_diagram_replaced_by_text_without_spatial_reason(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            Image.new("RGBA", (8, 6), (20, 40, 60, 0)).save(assets / "concept.png")
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                _lecture_markdown("![Concept diagram](lecture-notes-assets/concept.png)"),
+                encoding="utf-8",
+            )
+            ledger = root / "visual-coverage-ledger.md"
+            ledger.write_text(
+                _visual_ledger([
+                    ("Architecture diagram", "keep", "Final asset `concept.png`; QA passed."),
+                    (
+                        "Progressive before/after state",
+                        "omit",
+                        "A Markdown table communicates the labels.",
+                    ),
+                ]),
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(
+                markdown,
+                assets,
+                visual_ledger_path=ledger,
+            )
+
+        self.assertTrue(any(
+            "without stating why there is no instructional spatial relationship" in error
+            for error in validation["errors"]
+        ))
+
+    def test_visual_ledger_rejects_unresolved_retry(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            assets = root / "lecture-notes-assets"
+            assets.mkdir()
+            Image.new("RGBA", (8, 6), (20, 40, 60, 0)).save(assets / "concept.png")
+            markdown = root / "lecture-notes.md"
+            markdown.write_text(
+                _lecture_markdown("![Concept diagram](lecture-notes-assets/concept.png)"),
+                encoding="utf-8",
+            )
+            ledger = root / "visual-coverage-ledger.md"
+            ledger.write_text(
+                _visual_ledger([
+                    ("Architecture diagram", "keep", "Final asset `concept.png`; QA passed."),
+                    ("Model-output state", "retry", "PowerPoint export still required."),
+                ]),
+                encoding="utf-8",
+            )
+
+            validation = validate_lecture_notes(
+                markdown,
+                assets,
+                visual_ledger_path=ledger,
+            )
+
+        self.assertTrue(any(
+            "remains retry; resolve it before delivery" in error
+            for error in validation["errors"]
+        ))
 
     def test_validator_rejects_raw_html_image_without_alt(self):
         with tempfile.TemporaryDirectory() as tmpdir:

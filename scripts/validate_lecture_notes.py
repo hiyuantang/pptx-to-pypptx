@@ -34,6 +34,25 @@ MARKDOWN_HEADING = re.compile(
 TOC_LIST_ITEM = re.compile(
     r"(?m)^([ \t]*)[-*+][ \t]+\[([^]]+)\]\(#([^)]+)\)[ \t]*$"
 )
+VISUAL_LEDGER_MEDIA = re.compile(
+    r"(?i)(?<![-A-Za-z0-9_.])([A-Za-z0-9][A-Za-z0-9_.-]*\.(?:png|jpe?g|gif|webp|svg))"
+)
+VISUAL_LEDGER_RENDER_FAILURE = re.compile(
+    r"(?i)\b(?:libreoffice|powerpoint|render(?:er|ing|ed)?|font substitution|"
+    r"wrapp?(?:ed|ing|s)?|clipp?(?:ed|ing)?|blank|illegible|layout|geometry|"
+    r"extract(?:ion|ed|ing)?|opaque|transparen(?:cy|t))\b"
+)
+VISUAL_LEDGER_HIGH_RISK = re.compile(
+    r"(?i)\b(?:diagram|pipeline|architecture|arrow|flow|process|progressive|"
+    r"before[/-]after|before-and-after|workflow|state|model output|annotated|"
+    r"task head|head pipeline)\b"
+)
+VISUAL_LEDGER_TEXT_SUBSTITUTE = re.compile(
+    r"(?i)\b(?:markdown|prose|table|list|equation|math|text)\b"
+)
+VISUAL_LEDGER_NO_SPATIAL = re.compile(
+    r"(?i)\bno instructional spatial relationship\b"
+)
 
 
 def _link_target(raw: str) -> str:
@@ -216,12 +235,119 @@ def _normalize_allowed_opaque(
     return normalized, errors
 
 
+def _split_visual_ledger_row(line: str) -> list[str] | None:
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return None
+    return [cell.strip() for cell in stripped[1:-1].split("|")]
+
+
+def _validate_visual_ledger(
+    visual_ledger_path: Path,
+    *,
+    linked_files: set[Path],
+) -> tuple[list[str], list[str], dict[str, int]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    summary = {"rows": 0, "kept": 0, "omitted": 0, "retry": 0}
+    visual_ledger_path = Path(visual_ledger_path)
+    if not visual_ledger_path.exists():
+        return [f"Visual coverage ledger not found: {visual_ledger_path}"], warnings, summary
+
+    lines = visual_ledger_path.read_text(encoding="utf-8").splitlines()
+    header_index = None
+    columns: dict[str, int] = {}
+    for index, line in enumerate(lines):
+        cells = _split_visual_ledger_row(line)
+        if not cells:
+            continue
+        normalized = [re.sub(r"[^a-z]+", " ", cell.lower()).strip() for cell in cells]
+        for key in ("candidate", "disposition", "reason"):
+            match = next((i for i, value in enumerate(normalized) if key in value), None)
+            if match is not None:
+                columns[key] = match
+        if len(columns) == 3:
+            header_index = index
+            break
+        columns = {}
+    if header_index is None:
+        return [
+            "Visual coverage ledger must contain Candidate visual, Disposition, "
+            "and Reason / QA result columns"
+        ], warnings, summary
+
+    kept_assets: set[str] = set()
+    started = False
+    for index in range(header_index + 1, len(lines)):
+        cells = _split_visual_ledger_row(lines[index])
+        if cells is None:
+            if started:
+                break
+            continue
+        if all(re.fullmatch(r":?-{3,}:?", cell.replace(" ", "")) for cell in cells):
+            continue
+        started = True
+        if len(cells) <= max(columns.values()):
+            errors.append(f"Visual ledger row {index + 1} has too few columns")
+            continue
+
+        candidate = cells[columns["candidate"]]
+        disposition = cells[columns["disposition"]].strip(" `").lower()
+        reason = cells[columns["reason"]]
+        summary["rows"] += 1
+        if disposition not in {"keep", "omit", "retry"}:
+            errors.append(
+                f"Visual ledger row {index + 1} has invalid disposition: {disposition or '(blank)'}"
+            )
+            continue
+        if disposition == "keep":
+            summary["kept"] += 1
+            row_assets = set(VISUAL_LEDGER_MEDIA.findall(" ".join(cells)))
+            if not row_assets:
+                errors.append(
+                    f"Visual ledger keep row {index + 1} must record its final asset filename"
+                )
+            kept_assets.update(row_assets)
+        elif disposition == "retry":
+            summary["retry"] += 1
+            errors.append(
+                f"Visual ledger row {index + 1} remains retry; resolve it before delivery"
+            )
+        else:
+            summary["omitted"] += 1
+            if VISUAL_LEDGER_RENDER_FAILURE.search(reason):
+                errors.append(
+                    f"Visual ledger omit row {index + 1} cites a rendering or extraction failure; "
+                    "keep it as retry and resolve it through the fidelity escalation"
+                )
+            if (
+                VISUAL_LEDGER_HIGH_RISK.search(candidate)
+                and VISUAL_LEDGER_TEXT_SUBSTITUTE.search(reason)
+                and not VISUAL_LEDGER_NO_SPATIAL.search(reason)
+            ):
+                errors.append(
+                    f"Visual ledger omit row {index + 1} replaces a diagrammatic candidate with "
+                    "text without stating why there is no instructional spatial relationship"
+                )
+
+    if summary["rows"] == 0:
+        errors.append("Visual coverage ledger contains no candidate rows")
+
+    linked_assets = {path.name for path in linked_files}
+    for asset in sorted(kept_assets - linked_assets):
+        errors.append(f"Visual ledger keep asset is not linked from the Markdown: {asset}")
+    for asset in sorted(linked_assets - kept_assets):
+        errors.append(f"Linked Markdown asset has no visual ledger keep row: {asset}")
+    return errors, warnings, summary
+
+
 def validate_lecture_notes(
     markdown_path: Path,
     assets_dir: Path,
     *,
     strict_transparency: bool = False,
     allowed_opaque: Iterable[str] = (),
+    visual_ledger_path: Path | None = None,
 ) -> dict:
     markdown_path = Path(markdown_path)
     assets_dir = Path(assets_dir)
@@ -229,6 +355,7 @@ def validate_lecture_notes(
     warnings: list[str] = []
     linked_files: set[Path] = set()
     opaque_files: set[Path] = set()
+    visual_ledger_summary = {"rows": 0, "kept": 0, "omitted": 0, "retry": 0}
     allowed_opaque_paths, allowlist_errors = _normalize_allowed_opaque(
         allowed_opaque,
         assets_dir=assets_dir,
@@ -332,6 +459,14 @@ def validate_lecture_notes(
                 f"Allowed opaque asset is not a linked opaque raster: {relative_path}"
             )
 
+    if visual_ledger_path is not None:
+        ledger_errors, ledger_warnings, visual_ledger_summary = _validate_visual_ledger(
+            visual_ledger_path,
+            linked_files=linked_files,
+        )
+        errors.extend(ledger_errors)
+        warnings.extend(ledger_warnings)
+
     return {
         "errors": errors,
         "warnings": warnings,
@@ -342,6 +477,10 @@ def validate_lecture_notes(
             "opaque_rasters": len(opaque_files),
             "allowed_opaque_rasters": len(allowed_opaque_used),
             "toc_links": toc_links,
+            "visual_ledger_rows": visual_ledger_summary["rows"],
+            "visual_ledger_kept": visual_ledger_summary["kept"],
+            "visual_ledger_omitted": visual_ledger_summary["omitted"],
+            "visual_ledger_retry": visual_ledger_summary["retry"],
         },
     }
 
@@ -369,6 +508,11 @@ def main() -> None:
             "repeat for additional screenshots, photos, or intrinsic panels"
         ),
     )
+    parser.add_argument(
+        "--visual-ledger",
+        required=True,
+        help="Scratch visual-coverage ledger used to justify every keep, omit, or retry decision",
+    )
     args = parser.parse_args()
 
     markdown = Path(args.markdown)
@@ -378,6 +522,7 @@ def main() -> None:
         assets_dir,
         strict_transparency=args.strict_transparency,
         allowed_opaque=args.allow_opaque,
+        visual_ledger_path=Path(args.visual_ledger),
     )
     for message in result["errors"]:
         print(f"ERROR: {message}", file=sys.stderr)
@@ -391,7 +536,11 @@ def main() -> None:
             f"{summary['unused_assets']} unused, "
             f"{summary['opaque_rasters']} opaque raster(s), "
             f"{summary['allowed_opaque_rasters']} explicitly allowed, "
-            f"{summary['toc_links']} TOC link(s)."
+            f"{summary['toc_links']} TOC link(s), "
+            f"{summary['visual_ledger_rows']} visual-ledger row(s) "
+            f"({summary['visual_ledger_kept']} keep, "
+            f"{summary['visual_ledger_omitted']} omit, "
+            f"{summary['visual_ledger_retry']} retry)."
         )
     if result["errors"]:
         sys.exit(1)
