@@ -155,7 +155,7 @@ Omit:
 - a text box or callout whose meaning does not depend on where it points—rewrite it into the prose instead;
 - decorative backgrounds, logos, repeated chrome, ornamental photos, navigation, and empty layout elements;
 - quiz prompts, answer choices, answer-reveal states, and quiz-only visuals; and
-- redundant visuals that restate what the prose already communicates clearly.
+- exact visual duplicates and visuals with no instructional spatial relationship.
 
 There is no one-image-per-slide or one-image-per-section quota. Some slides contribute only prose. Some multi-slide builds contribute one final diagram. A dense teaching claim may justify more than one visual when each shows a genuinely different case or result. A low asset count is a warning only when the ledger shows unexplained visual teaching—not a goal to optimize.
 
@@ -192,6 +192,8 @@ Apply these rules:
 - `keep` means the visual contributes a relationship or concrete example that prose alone does not communicate as efficiently. Record its semantic filename and intended Markdown placement after extraction.
 - `omit` requires a specific reason such as decorative, quiz-only, ordinary text moved into prose, exact duplicate, or genuinely redundant spatial content. “There are already enough images” is never a reason.
 - `retry` means the visual is instructionally useful but the first extraction is clipped, illegible, opaque when it should be transparent, or otherwise unfaithful. It remains unresolved until repaired or changed to a justified `omit` after reasonable extraction attempts.
+- For a diagram, pipeline, architecture, process, progressive state, before/after comparison, task head, or model output represented in text, an `omit` reason must state `no instructional spatial relationship` and explain why. Merely saying prose, a list, or a table contains its labels is not enough.
+- Rendering or extraction failure is never an `omit` reason. Resolve it through the fidelity escalation, or leave the row as `retry` and report the delivery blocker.
 - A prose sentence that merely names the boxes in a pipeline or the stages in a model does not automatically make the source diagram redundant. Preserve a useful visual when the ordering, connection, grouping, direction, highlighting, or label attachment is part of the lesson.
 - A screenshot, photograph, chart, or model output discussed as evidence is not decorative merely because its general topic can be described in prose. Keep the concrete source example when the lecture asks the learner to inspect it.
 - When a build family contains different inputs, predictions, errors, corrections, or before/after results, treat those states as separate candidates rather than as progressive duplicates.
@@ -252,7 +254,7 @@ Do not interpret a bad first render as evidence that the source diagram is unnec
 2. inspect the slide's object hierarchy and distinguish top-level group IDs from child IDs;
 3. retry with only the diagram, connectors, labels, and spatial callouts, omitting titles, prose, and chrome;
 4. compare the asset with the source preview at the expected Markdown display width on both light and dark backgrounds; and
-5. keep it as `retry` in the coverage ledger until it is faithful, or record why the source cannot be rendered cleanly and preserve its teaching content in prose or math.
+5. keep it as `retry` in the coverage ledger until it is faithful; do not convert a rendering failure into an omission.
 
 ### Rendering-fidelity escalation
 
@@ -378,8 +380,9 @@ Run the deterministic link and asset check in strict-transparency mode. Omit `--
 uv run python <pptx-to-pypptx-dir>/scripts/validate_lecture_notes.py \
   lecture-notes.md --assets-dir lecture-notes-assets \
   --strict-transparency \
+  --visual-ledger <scratch-dir>/visual-coverage-ledger.md \
   --allow-opaque application-screenshot.png \
   --allow-opaque source-photograph.jpg
 ```
 
-The validator rejects temporary `slide-images/slide_N.png` references so source previews cannot leak into the final notes. In strict mode it also rejects every opaque raster that is not exactly allowlisted, and rejects stale allowlist entries that no longer identify a linked opaque asset. Resolve every error and warning before delivery. If the only remaining warning is that the document has no image links, the coverage ledger must demonstrate that the source lecture truly has no instructionally useful visual.
+The validator rejects temporary `slide-images/slide_N.png` references so source previews cannot leak into the final notes. It also rejects unresolved ledger retries, rendering failures recorded as omissions, diagrammatic text substitutions without the required spatial justification, and disagreement between retained assets and Markdown links. In strict mode it rejects every opaque raster that is not exactly allowlisted, including stale allowlist entries. Resolve every error and warning before delivery. If the only remaining warning is that the document has no image links, the coverage ledger must demonstrate that the source lecture truly has no instructionally useful visual.

@@ -157,7 +157,8 @@ draft:
 uv run python scripts/finalize_lecture_notes.py \
   /tmp/lecture-notes.draft.md --output lecture-notes.md
 uv run python scripts/validate_lecture_notes.py \
-  lecture-notes.md --assets-dir lecture-notes-assets
+  lecture-notes.md --assets-dir lecture-notes-assets \
+  --visual-ledger /tmp/lecture-source/visual-coverage-ledger.md
 ```
 
 ### Your project
