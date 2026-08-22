@@ -14,7 +14,11 @@ from helpers.lecture_assets import inspect_raster
 
 
 MARKDOWN_IMAGE_LINK = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
-HTML_IMAGE_TAG = re.compile(r"<img\b[^>]*>", re.IGNORECASE | re.DOTALL)
+# Consume quoted attribute values whole so a literal ">" inside one (common in
+# alt prose: "accuracy climbs once lr > 0.01") cannot end the tag early.
+HTML_IMAGE_TAG = re.compile(
+    r"""<img\b(?:[^>"']|"[^"]*"|'[^']*')*>""", re.IGNORECASE | re.DOTALL
+)
 HTML_ATTRIBUTE = re.compile(
     r"(?P<name>[A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*"
     r"(?:\"(?P<double>[^\"]*)\"|'(?P<single>[^']*)')"
