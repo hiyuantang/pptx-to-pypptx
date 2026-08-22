@@ -208,18 +208,34 @@ By default, assume the human edited the working deck at `out/<filename>.pptx`. T
 
 ### Upgrade the skill
 
-Triggered by "upgrade the pptx-to-pypptx skill." Pull, then migrate projects only if code changed.
+Triggered by "upgrade the pptx-to-pypptx skill." First identify how the skill was installed, then update it and migrate projects only if code changed. A project-scoped skill is often a vendored folder inside the project's Git worktree; `git -C <pptx-to-pypptx-dir>` may therefore resolve to the parent project rather than to the skill repository.
 
-1. **Pull and diff:**
+1. **Identify the installation type:**
    ```bash
-   OLD=$(git -C <pptx-to-pypptx-dir> rev-parse HEAD)
-   git -C <pptx-to-pypptx-dir> pull
-   git -C <pptx-to-pypptx-dir> diff --name-only "$OLD" HEAD
+   SKILL_DIR=$(cd "<pptx-to-pypptx-dir>" && pwd -P)
+   GIT_ROOT=$(git -C "$SKILL_DIR" rev-parse --show-toplevel 2>/dev/null || true)
+   if [ -n "$GIT_ROOT" ]; then GIT_ROOT=$(cd "$GIT_ROOT" && pwd -P); fi
    ```
-   "Already up to date." → stop.
-2. **Re-read `SKILL.md` if it changed** — your loaded copy is now stale.
-3. **Decide.** Migrate only if the diff touched **`scripts/`** or **`template/`**. Docs-only (`*.md`, `LICENSE`, `references/`) → report "no migration needed" and stop.
-4. **Re-baseline each project** (`detect_project.py`) from its own `out/<name>.pptx`:
+   Treat the skill as a standalone Git checkout only when the canonical `GIT_ROOT` path equals `SKILL_DIR`. If `GIT_ROOT` is empty or names a parent directory, treat the skill as a project-scoped vendored install and do not run `git pull` in it.
+2. **Update and record the diff:**
+   - **Standalone Git checkout:**
+     ```bash
+     OLD=$(git -C "$SKILL_DIR" rev-parse HEAD)
+     git -C "$SKILL_DIR" pull
+     git -C "$SKILL_DIR" diff --name-only "$OLD" HEAD
+     ```
+   - **Project-scoped vendored install:** clone the canonical upstream into scratch space, compare it with the installed folder, and apply only the reported upstream changes. Keep a scratch backup, never copy the clone's `.git/`, and do not overwrite an apparent local customization without user direction.
+     ```bash
+     SCRATCH_DIR=$(mktemp -d)
+     cp -R "$SKILL_DIR" "$SCRATCH_DIR/installed-backup"
+     git clone --depth 1 https://github.com/hiyuantang/pptx-to-pypptx.git \
+       "$SCRATCH_DIR/upstream"
+     diff -qr --exclude=.git "$SKILL_DIR" "$SCRATCH_DIR/upstream"
+     ```
+     No diff means the vendored install is already current. Otherwise update the installed files one by one from the scratch clone and remove only files that the comparison shows were deleted upstream.
+3. **Re-read `SKILL.md` if it changed** — your loaded copy is now stale.
+4. **Decide.** Migrate only if the diff touched **`scripts/`** or **`template/`**. Docs-only (`*.md`, `LICENSE`, `references/`) → report "no migration needed" and stop.
+5. **Re-baseline each project** (`detect_project.py`) from its own `out/<name>.pptx`:
    1. **Build** (`build_deck.py`), then **commit** the project — re-scaffolding resets `lib/design.py`, re-syncs `assets/`, and empties `slides/`.
    2. **Re-scaffold in place** (`scaffold.py --target <output-dir>/out/<name>.pptx --output-dir <output-dir>`).
    3. **Regenerate all slides** (`generate_slides.py --slides 1-N`).
